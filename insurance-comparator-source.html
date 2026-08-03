@@ -1,0 +1,2866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CRS Comparative Analysis — HowdenPH-Apps</title>
+
+<!-- Styling -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Client-side parsers (load in the user's browser; no build step required) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+<!-- PDF generator (builds a real .pdf in the browser — no pop-up / print dialog needed) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<!-- React (UMD) + in-browser JSX transpile -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .mono-amt { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  /* thin scrollbar for the sticky comparison table */
+  .cmp-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+  .cmp-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+  /* Print / Export PDF: show only the matrix, let it flow across pages */
+  #matrix-print { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @media print {
+    body * { visibility: hidden !important; }
+    #matrix-print, #matrix-print * { visibility: visible !important; }
+    #matrix-print { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; }
+    #matrix-print .cmp-scroll { max-height: none !important; overflow: visible !important; }
+    #matrix-print [class*="sticky"] { position: static !important; }
+    .no-print { display: none !important; }
+    @page { size: A3 landscape; margin: 10mm; }
+  }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+<div id="root" class="min-h-screen"></div>
+<!-- ============================================================= -->
+<!-- 1) PURE LOGIC  (money, schema, parsers, extraction, logos)     -->
+<!--    Exposed on window.CMP so the React layer can consume it.    -->
+<!-- ============================================================= -->
+<script>
+(function () {
+  const CMP = {};
+
+  /* ---------------------------------------------------------------
+   * MONEY  — single shared money helper used for EVERY monetary field
+   * (premium line items, premium total, sum insured, deductibles).
+   *
+   * CRITICAL: we NEVER store a monetary value in a JS number for display.
+   * The exact source substring (incl. trailing zeros like "500,000.00")
+   * is preserved verbatim in `amountDisplay`. The numeric `amount` is
+   * derived ONLY for sorting / range filtering and is never rendered.
+   * This is the guard against the "native number input strips .00" bug.
+   * ------------------------------------------------------------- */
+  const CURRENCIES = [
+    { code: 'PHP', symbol: '₱', rx: /₱|\bphp\b|\bpeso/i },
+    { code: 'USD', symbol: '$', rx: /\bus\$|\busd\b/i },
+    { code: 'EUR', symbol: '€', rx: /€|\beur\b/i },
+    { code: 'GBP', symbol: '£', rx: /£|\bgbp\b/i },
+    { code: 'JPY', symbol: '¥', rx: /¥|\bjpy\b/i },
+  ];
+
+  function detectCurrency(s) {
+    for (const c of CURRENCIES) if (c.rx.test(s)) return c;
+    // bare "$" already handled by USD; default to PHP for this market
+    if (/\$/.test(s)) return CURRENCIES[1];
+    return CURRENCIES[0]; // PHP default (Philippine market)
+  }
+
+  // Parse ONE amount out of a free-text value. Returns null if no number found.
+  function parseMoney(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    // capture digits with optional thousands separators and optional decimals,
+    // preserving the exact written form (including trailing zeros).
+    const m = s.match(/(?:₱|php|us\$|usd|eur|gbp|jpy|\$|€|£|¥)?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i);
+    if (!m) return null;
+    const display = m[1];                      // e.g. "24,580.00" — verbatim
+    const numeric = Number(display.replace(/,/g, ''));
+    const cur = detectCurrency(s);
+    return {
+      amountDisplay: display,
+      amount: Number.isFinite(numeric) ? numeric : null,
+      currency: cur.code,
+      symbol: cur.symbol,
+    };
+  }
+
+  // Render a money object EXACTLY as captured. Falls back to a manual-verify flag.
+  function formatMoney(mo) {
+    if (!mo || !mo.amountDisplay) return 'Not detected — verify manually';
+    return (mo.symbol || '') + ' ' + mo.amountDisplay;
+  }
+
+  CMP.parseMoney = parseMoney;
+  CMP.formatMoney = formatMoney;
+
+  // Sectioned money (Sum Insured / Deductibles with Section I, II, …).
+  CMP.sectionsOf = function (field) {
+    if (!field) return [];
+    if (Array.isArray(field.sections)) return field.sections;
+    if (field.amountDisplay) return [{ label: '', money: field }];
+    return [];
+  };
+  CMP.primaryMoney = function (field) {
+    const s = CMP.sectionsOf(field).find((x) => x.money && x.money.amountDisplay);
+    return s ? s.money : null;
+  };
+  CMP.primaryAmount = function (field) {
+    const m = CMP.primaryMoney(field);
+    return m ? m.amount : null;
+  };
+  CMP.sectionValue = function (sec) {
+    if (!sec) return '';
+    if (sec.money && sec.money.amountDisplay) return formatMoney(sec.money);
+    return sec.value != null ? String(sec.value) : '';
+  };
+  CMP.formatSections = function (field) {
+    const secs = CMP.sectionsOf(field).filter((x) => CMP.sectionValue(x));
+    if (!secs.length) return '';
+    if (secs.length === 1 && !secs[0].label) return CMP.sectionValue(secs[0]);
+    return secs.map((x) => (x.label ? x.label + ': ' : '') + CMP.sectionValue(x)).join('\n');
+  };
+
+  // Total Premium aligned with the Matrix (manual override if set, else extracted).
+  CMP.premiumTotalDisplay = function (p) {
+    const o = p && p.overrides && p.overrides.premiumTotal;
+    if (o != null && String(o).trim() !== '') return String(o);
+    return p && p.premium && p.premium.total ? formatMoney(p.premium.total.money) : '';
+  };
+  CMP.premiumTotalAmount = function (p) {
+    const o = p && p.overrides && p.overrides.premiumTotal;
+    if (o != null && String(o).trim() !== '') { const m = String(o).replace(/,/g, '').match(/\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : null; }
+    return p && p.premium && p.premium.total ? p.premium.total.money.amount : null;
+  };
+  // Normalise a hand-typed money value to "<symbol> 1,234,567.89" (comma + cents).
+  // Only reformats plain numbers; text with extra words is left as typed. Idempotent.
+  CMP.formatMoneyInput = function (text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return '';
+    const sym = (s.match(/[₱$€£¥]/) || [''])[0];
+    const core = s.replace(/[₱$€£¥,\s]/g, '');
+    if (/^-?\d+(\.\d+)?$/.test(core)) {
+      const n = parseFloat(core);
+      if (isFinite(n)) return (sym || '₱') + ' ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return s;
+  };
+  // Reformat only the money AMOUNTS inside mixed text (Sum Insured / Deductibles),
+  // leaving section labels, percentages ("2%") and time excesses ("72 hours") intact.
+  CMP.formatMoneyInText = function (text) {
+    const s = String(text == null ? '' : text);
+    if (!s) return '';
+    const re = /([₱$€£¥]\s*)?(\d[\d,]*(?:\.\d+)?)/g;
+    return s.replace(re, function (m, sym, num, offset, full) {
+      const after = full.slice(offset + m.length);
+      if (/^\s*%/.test(after)) return m;
+      if (/^\s*(hours?|hrs?|days?|months?|mos?|weeks?|wks?|years?|yrs?)\b/i.test(after)) return m;
+      const core = num.replace(/,/g, '');
+      const hasComma = num.indexOf(',') >= 0;
+      const hasDot = num.indexOf('.') >= 0;
+      const intDigits = core.split('.')[0].length;
+      const yearLike = !sym && !hasComma && !hasDot && /^(19|20)\d{2}$/.test(core);
+      const isMoney = !!sym || hasComma || hasDot || (intDigits >= 4 && !yearLike);
+      if (!isMoney) return m;
+      const n = parseFloat(core);
+      if (!isFinite(n)) return m;
+      return (sym ? sym.trim() + ' ' : '') + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    });
+  };
+
+  /* ---------------------------------------------------------------
+   * SCHEMA — an empty proposal, mirroring the source slip field names.
+   * ------------------------------------------------------------- */
+  function emptyProposal(fileName) {
+    return {
+      id: 'p_' + Math.random().toString(36).slice(2, 9),
+      fileName: fileName || '',
+      insurers: [],                 // [{ name, logoUrl, percentageShare }]
+      policyType: '',
+      insured: '',
+      natureOfBusiness: '',
+      project: '',
+      periodOfInsurance: { from: '', to: '' },
+      locationsOfRisks: '',
+      cover: '',
+      sumInsured: { sections: [
+        { label: 'Section I – Material Damage', money: null },
+        { label: 'Section II – Third Party Liability', money: null },
+      ] },
+      deductibles: { sections: [
+        { label: 'Section I – Material Damage', value: '' },
+        { label: 'Section II – Third Party Liability', value: '' },
+      ] },
+      clausesAndWarranties: [],     // string[]
+      premiumRate: { sections: [
+        { label: 'Section I – Material Damage', value: '' },
+        { label: 'Section II – Third Party Liability', value: 'free of charge' },
+      ] },
+      brokerageRate: '',
+      premium: { lineItems: [], total: null, currency: 'PHP' }, // lineItems: [{label, money}]
+      premiumPaymentTerms: '',
+      birReference: '',
+      leadInsurerClause: '',
+      severalLiabilityClause: '',
+      claimsInformation: '',
+      choiceOfJurisdiction: '',
+      policyForm: '',
+      validityOfQuote: '',
+      extractionConfidence: 'low',  // high | medium | low
+      flaggedFields: [],
+      overrides: {},                // per-field manual edits made in the Matrix
+      rawText: '',
+    };
+  }
+  CMP.emptyProposal = emptyProposal;
+
+  /* ---------------------------------------------------------------
+   * PARSERS — turn an uploaded file into { text, pairs, images }.
+   *   pairs = [{label, value}] recovered from table rows (most reliable)
+   *   text  = newline-joined lines (fallback for regex)
+   *   images = data-URI candidates for logo auto-extraction (docx only)
+   * ------------------------------------------------------------- */
+
+  // Convert loose text lines into label/value pairs when a "Label: value"
+  // shape is present. Table-derived pairs are added separately and trusted more.
+  function linesToPairs(lines) {
+    const pairs = [];
+    for (const line of lines) {
+      const colon = line.match(/^([A-Za-z][A-Za-z0-9 /&'().\-]{2,60}?)\s*[:\-–]\s+(.+)$/);
+      if (colon) pairs.push({ label: colon[1].trim(), value: colon[2].trim(), soft: true });
+    }
+    return pairs;
+  }
+
+  // True when a line is page chrome (header / footer / classification banner /
+  // reference code / reviewer initials) rather than slip content.
+  function isBoilerplateLine(s) {
+    const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    if (!t) return true;
+    if (/\d\s*\|\s*p\s*a?\s*g\s*e\b/i.test(t)) return true;
+    if (/\bpage\s*\d+\s*(?:of|\/)\s*\d+\b/i.test(t)) return true;
+    if (/^page\b/i.test(t) && t.length < 12) return true;
+    if (/\blevel\s*\d+\s*\(?\s*(restricted|confidential|internal)/i.test(t)) return true;
+    if (/^(?:private\s*&?\s*)?(?:strictly\s*)?(?:confidential|restricted)\b/i.test(t) && t.length < 40) return true;
+    if (/\bR\d{2}\b\s*$/i.test(t) && /(?:19|20)\d{2}/.test(t) && t.length < 60) return true;
+    if (/^(?:[A-Za-z]\s+){1,5}[A-Za-z](?:\s*\|\s*(?:[A-Za-z]\s+)*[A-Za-z]\s*)+$/.test(t)) return true;
+    return false;
+  }
+
+  async function extractPdf(file) {
+    const buf = await file.arrayBuffer();
+    const __d = new Uint8Array(buf);
+    const pdf = window.__unpdfGetDocument ? await window.__unpdfGetDocument(__d) : await window.pdfjsLib.getDocument({ data: __d }).promise;
+    const norm4 = (r) => [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])];
+    const pageLineArrays = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const strikeRects = [];
+      const markupLines = [];
+      try {
+        const annots = await page.getAnnotations();
+        annots.forEach((a) => {
+          if (a.subtype === 'StrikeOut' && a.rect) strikeRects.push(norm4(a.rect));
+          let t = a.fieldValue != null && a.fieldValue !== '' ? String(a.fieldValue) : (a.contents ? String(a.contents) : '');
+          t = t.replace(/\s+/g, ' ').trim();
+          if (t) markupLines.push(t);
+        });
+      } catch (e) { /* ignore */ }
+      const inStrike = (x, y) => strikeRects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
+      const rows = {};
+      tc.items.forEach((it) => {
+        if (!it.str || !it.str.trim()) return;
+        const x = it.transform[4], y = it.transform[5];
+        if (inStrike(x, y)) return;
+        const yk = Math.round(y);
+        (rows[yk] = rows[yk] || []).push({ x, s: it.str });
+      });
+      const pageLines = [];
+      Object.keys(rows).map(Number).sort((a, b) => b - a).forEach((yk) => {
+        const line = rows[yk].sort((a, b) => a.x - b.x).map((o) => o.s).join(' ').replace(/\s+/g, ' ').trim();
+        if (line) pageLines.push(line);
+      });
+      markupLines.forEach((t) => { if (!pageLines.includes(t)) pageLines.push(t); });
+      pageLineArrays.push(pageLines);
+    }
+    const nrm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const freq = {};
+    pageLineArrays.forEach((pl) => { const seen = new Set(); pl.forEach((l) => { const k = nrm(l); if (!seen.has(k)) { seen.add(k); freq[k] = (freq[k] || 0) + 1; } }); });
+    const multi = pdf.numPages >= 2;
+    const lines = [];
+    pageLineArrays.forEach((pl) => pl.forEach((l) => {
+      if (isBoilerplateLine(l)) return;
+      if (multi && freq[nrm(l)] >= 2) return; // running header / footer
+      lines.push(l);
+    }));
+    return { text: lines.join('\n'), pairs: linesToPairs(lines), images: [] };
+  }
+
+  async function extractXlsx(file) {
+    const buf = await file.arrayBuffer();
+    const wb = window.XLSX.read(buf, { type: 'array' });
+    const pairs = [], lines = [];
+    wb.SheetNames.forEach((name) => {
+      const ws = wb.Sheets[name];
+      const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+      rows.forEach((r) => {
+        const cells = r.map((c) => String(c == null ? '' : c).trim());
+        const nonEmpty = cells.filter(Boolean);
+        if (nonEmpty.length) lines.push(nonEmpty.join(' | '));
+        if (cells.length >= 2 && cells[0]) {
+          const val = cells.slice(1).filter(Boolean).join(' ');
+          if (val) pairs.push({ label: cells[0], value: val });
+        }
+      });
+    });
+    const clean = lines.filter((l) => !isBoilerplateLine(l));
+    return { text: clean.join('\n'), pairs: pairs.filter((p) => !isBoilerplateLine(p.value)), images: [] };
+  }
+
+  async function extractDocx(file) {
+    const buf = await file.arrayBuffer();
+    const images = [];
+    const res = await window.mammoth.convertToHtml({ arrayBuffer: buf }, {
+      styleMap: ['strike => s'],
+      convertImage: window.mammoth.images.imgElement(async (img) => {
+        try {
+          const b64 = await img.read('base64');
+          const src = 'data:' + img.contentType + ';base64,' + b64;
+          images.push(src);
+          return { src };
+        } catch (e) { return {}; }
+      }),
+    });
+    const doc = new DOMParser().parseFromString(res.value, 'text/html');
+    // Remove crossed-out / deleted text so it is not read.
+    doc.querySelectorAll('s, strike, del').forEach((el) => el.remove());
+    const pairs = [], lines = [];
+    doc.querySelectorAll('table tr').forEach((tr) => {
+      const tds = [...tr.querySelectorAll('td,th')].map((td) => td.textContent.trim());
+      const nonEmpty = tds.filter(Boolean);
+      if (nonEmpty.length) lines.push(nonEmpty.join(' | '));
+      if (tds.length >= 2 && tds[0]) {
+        const val = tds.slice(1).filter(Boolean).join(' ');
+        if (val) pairs.push({ label: tds[0], value: val });
+      }
+    });
+    doc.querySelectorAll('p,li,h1,h2,h3,h4').forEach((el) => {
+      const t = el.textContent.trim();
+      if (t) lines.push(t);
+    });
+    const clean = lines.filter((l) => !isBoilerplateLine(l));
+    return { text: clean.join('\n'), pairs: pairs.concat(linesToPairs(clean)).filter((p) => !isBoilerplateLine(p.value)), images };
+  }
+
+  async function parseFile(file) {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.pdf')) return extractPdf(file);
+    if (name.endsWith('.xlsx') || name.endsWith('.xls')) return extractXlsx(file);
+    if (name.endsWith('.docx')) return extractDocx(file);
+    if (name.endsWith('.doc')) {
+      throw new Error('Legacy .doc is not supported in-browser — please re-save as .docx');
+    }
+    throw new Error('Unsupported file type');
+  }
+  CMP.parseFile = parseFile;
+
+  /* ---------------------------------------------------------------
+   * EXTRACTION — heuristic mapping of {text, pairs} -> proposal schema.
+   * Deliberately conservative: it never fabricates a value. Anything
+   * recovered from loose text (not a clean table row) is flagged for
+   * manual verification.
+   * ------------------------------------------------------------- */
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 %]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const FIELD_LABELS = {
+    policyType: ['policy type', 'class of insurance', 'type of policy', 'line of business', 'class'],
+    insured: ['name of insured', 'insured', 'assured', 'policyholder', 'name of assured'],
+    natureOfBusiness: ['nature of business', 'business', 'occupation', 'trade'],
+    project: ['project', 'vehicle', 'unit', 'subject matter', 'make and model', 'description of unit'],
+    locationsOfRisks: ['locations of risk', 'location of risk', 'risk location', 'garaging address', 'location'],
+    cover: ['scope of cover', 'cover', 'coverage', 'perils covered', 'perils insured'],
+    sumInsured: ['total sum insured', 'sum insured', 'insured value', 'amount insured', 'tsi'],
+    deductibles: ['deductibles', 'deductible', 'excess', 'franchise'],
+    premiumRate: ['premium rate', 'rate'],
+    brokerageRate: ['brokerage rate', 'brokerage', 'commission'],
+    premiumPaymentTerms: ['premium payment terms', 'payment terms', 'terms of payment', 'mode of payment'],
+    birReference: ['bir revenue', 'revenue memorandum order', 'revenue regulation', 'rmo', 'bir'],
+    leadInsurerClause: ['lead insurer clause', 'lead insurer', 'lead underwriter'],
+    severalLiabilityClause: ['several liability clause', 'several liability'],
+    claimsInformation: ['claims information', 'claims experience', 'loss record', 'claims history', 'claims'],
+    choiceOfJurisdiction: ['choice of jurisdiction', 'jurisdiction', 'law and practice', 'governing law', 'choice of jurisdiction, law and practice'],
+    policyForm: ['policy form', 'policy wording', 'wording', 'form'],
+    validityOfQuote: ['validity of quote', 'validity of quotation', 'quotation valid', 'quote valid', 'valid until', 'validity'],
+    insurerName: ['insurer', 'insurance company', 'underwriter', 'company', 'insurer / percentage share', 'security'],
+    natureBusinessAlt: ['nature of business'],
+    period: ['period of insurance', 'policy period', 'period'],
+  };
+
+  // Find the best value for a set of candidate labels. Prefers table pairs.
+  function findField(candidates, pairs) {
+    // table (hard) pairs first, then soft (colon) pairs
+    const hard = pairs.filter((p) => !p.soft);
+    const soft = pairs.filter((p) => p.soft);
+    for (const group of [hard, soft]) {
+      for (const cand of candidates) {
+        const nc = norm(cand);
+        for (const p of group) {
+          const nl = norm(p.label);
+          if (nl === nc || nl.startsWith(nc + ' ') || nl === nc + 's') {
+            if (p.value && norm(p.value)) return { value: p.value.trim(), soft: !!p.soft };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Premium is special: gather every recognised charge line + a total.
+  const PREMIUM_ITEM_LABELS = [
+    'basic premium', 'premium', 'documentary stamp tax', 'doc stamp tax', 'doc stamp',
+    'dst', 'value added tax', 'v.a.t', 'vat', 'local government tax', 'lgt',
+    'fire service tax', 'fst', "broker's fee", 'brokers fee', 'broker fee',
+  ];
+  const PREMIUM_TOTAL_LABELS = [
+    'net premium due', 'total premium due', 'total premium', 'gross premium',
+    'net premium', 'amount due', 'premium due', 'total amount due', 'total',
+  ];
+  const PREMIUM_EXCLUDE = ['premium rate', 'premium payment terms', 'premium payment', 'rate'];
+
+  function extractPremium(pairs) {
+    const items = [];
+    let total = null;
+    let currency = 'PHP';
+    const seen = new Set();
+    for (const p of pairs) {
+      const nl = norm(p.label);
+      if (!nl) continue;
+      if (PREMIUM_EXCLUDE.some((x) => nl === norm(x) || nl.startsWith(norm(x) + ' '))) continue;
+
+      const isTotal = PREMIUM_TOTAL_LABELS.some((x) => nl === norm(x) || nl.startsWith(norm(x) + ' '));
+      const isItem = PREMIUM_ITEM_LABELS.some((x) => nl === norm(x) || nl.startsWith(norm(x) + ' '));
+      if (!isTotal && !isItem) continue;
+
+      const money = parseMoney(p.value);
+      if (!money) continue;
+      if (money.currency) currency = money.currency;
+
+      if (isTotal && !total) {
+        total = { label: p.label.trim(), money };
+      } else if (isItem) {
+        const key = nl + '|' + money.amountDisplay;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({ label: p.label.trim(), money, nl });
+      }
+    }
+
+    // Standard Applicable Premium Charges template, overlaying detected amounts.
+    const STD = [
+      { label: 'Basic Premium', keys: ['basic premium', 'premium'] },
+      { label: 'Documentary Stamps Tax (DST)', keys: ['documentary', 'doc stamp', 'dst'] },
+      { label: 'Value Added Tax (VAT)', keys: ['value added', 'vat'] },
+      { label: 'Local Government Tax (LGT)', keys: ['local government', 'lgt'] },
+    ];
+    const matched = new Set();
+    const lineItems = STD.map((row) => {
+      const hit = items.find((d) => row.keys.some((k) => d.nl.includes(norm(k))));
+      if (hit) matched.add(hit);
+      let m = hit ? hit.money : null;
+      if (!m && row.label.includes('VAT')) m = { amountDisplay: '- EXEMPTED -', amount: null, currency: 'PHP', symbol: '' };
+      return { label: row.label, money: m };
+    });
+    items.forEach((d) => { if (!matched.has(d)) lineItems.push({ label: d.label, money: d.money }); });
+
+    return { lineItems, total, currency };
+  }
+
+  // Insurer keyword list (editable): descriptors + known carrier brand tokens
+  // (PH non-life market + major international carriers). Add your own carriers
+  // to INSURER_BRANDS so bare "<name> – NN%" lines are recognised.
+  const INSURER_DESCRIPTOR = /insur|assur|underwrit|reinsur|surety|mutual|takaful|lloyd|syndicate|indemnity|casualty|guarant|provident|fidelity|holdings|\bgroup\b|\bco\.?\b|\bcorp\.?\b|\bcompany\b|\bcompanies\b|\bltd\.?\b|\binc\.?\b|\bplc\b|\bpte\b|\bbhd\b|berhad|\bre\b|\bs\.?a\.?\b|\bn\.?v\.?\b|\ba\.?g\.?\b|\bse\b/i;
+  const INSURER_BRANDS = [
+    'malayan', 'pioneer', 'sterling', 'stronghold', 'prudential', 'prudentialife', 'cocolife',
+    'mercantile', 'fpg', 'cibeles', 'ucpb', 'plaridel', 'paramount', 'milestone', 'charter',
+    'ping an', 'etiqa', 'insular', 'visayan', 'iloilo', 'carguard', 'areza', 'bethel', 'phoenix',
+    'oriental', 'pacific cross', 'intra strata', 'pga', 'bpi', 'standard insurance',
+    'phil british', 'philippine british', 'malayan insurance',
+    'qbe', 'aig', 'chubb', 'allianz', 'axa', 'zurich', 'munich', 'swiss re', 'tokio', 'msig',
+    'sompo', 'generali', 'aviva', 'mapfre', 'berkshire', 'markel', 'hiscox', 'beazley', 'scor',
+    'everest', 'hdi', 'talanx',
+  ];
+  const INSURER_BRAND_RX = new RegExp('\\b(' + INSURER_BRANDS.join('|') + ')\\b', 'i');
+
+  // True when a string reads like an insurer's legal name / known brand, not a clause fragment.
+  function looksLikeInsurer(name) {
+    return INSURER_DESCRIPTOR.test(name) || INSURER_BRAND_RX.test(name);
+  }
+
+  // Last-resort insurer name derived from the file name.
+  function insurerFromFileName(fileName) {
+    if (!fileName) return '';
+    let s = fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_\-]+/g, ' ');
+    s = s.replace(/\b(quotation|quote|proposal|slip|comparative|matrix|final|draft|copy|rev\d*|r\d+|v\d+)\b/gi, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    return s.length >= 3 ? s : '';
+  }
+
+  // Co-insurance: "ABC Insurance Co. — 60%" style rows. A "…NN%" line is only
+  // treated as an insurer when the name actually reads like one — otherwise the
+  // parser would grab clause fragments. Falls back to an explicit "Insurer"
+  // field, then to the file name.
+  function extractInsurers(pairs, text, fileName) {
+    const insurers = [];
+    const shareRx = /([A-Za-z][A-Za-z0-9 .,&'()\-]{2,80}?)\s*[-–—:]?\s*(\d{1,3}(?:\.\d+)?)\s*%/g;
+    let m;
+    while ((m = shareRx.exec(text)) !== null) {
+      const name = m[1].replace(/\s+/g, ' ').trim();
+      const share = m[2] + '%';
+      if (/premium|brokerage|rate|tax|vat|discount|loading|deductible|excess|share|aggregate|limit|\bloi\b/i.test(name)) continue;
+      if (name.length < 3 || !looksLikeInsurer(name)) continue;
+      if (!insurers.some((i) => norm(i.name) === norm(name))) {
+        insurers.push({ name, percentageShare: share, logoUrl: '' });
+      }
+    }
+    if (insurers.length) return insurers;
+
+    // fallback 1: an explicit "Insurer" / "Insurance Company" field
+    const single = findField(FIELD_LABELS.insurerName, pairs);
+    if (single && single.value && !/%/.test(single.value)) {
+      const nm = single.value.replace(/\s+/g, ' ').trim();
+      if (nm && !/^insurer\b/i.test(nm) && !/percentage share/i.test(nm)) {
+        return [{ name: nm, percentageShare: '', logoUrl: '' }];
+      }
+    }
+
+    // fallback 2: derive from the file name
+    const fromFile = insurerFromFileName(fileName);
+    if (fromFile) return [{ name: fromFile, percentageShare: '', logoUrl: '' }];
+
+    return [];
+  }
+
+  function extractPeriod(pairs) {
+    const raw = findField(FIELD_LABELS.period, pairs);
+    if (!raw) return { from: '', to: '' };
+    const v = raw.value;
+    // split on "to", "–", "-", "until"
+    const parts = v.split(/\s+(?:to|until|thru|through|–|—)\s+|\s*-\s*(?=\d)/i);
+    if (parts.length >= 2) return { from: parts[0].trim(), to: parts.slice(1).join(' ').trim() };
+    return { from: v.trim(), to: '' };
+  }
+
+  const NEXT_SECTION_RX = /\n\s*(premium\s+rate|applicable\s+premium|brokerage\s+rate|premium\s+payment|bir\b|revenue\s+memorandum|revenue\s+regulation|insurer\s*\/|percentage\s+share|lead\s+insurer|several\s+liability|claims\s+information|choice\s+of\s+jurisdiction|policy\s+form|validity\s+of\s+quote)/i;
+
+  // Capture the FULL Clauses & Warranties list — every wording, no caps.
+  function extractClauses(pairs, text) {
+    let src = '';
+    const hit = findField(['clauses and warranties', 'clauses & warranties', 'clauses', 'warranties'], pairs);
+    if (hit && hit.value) src = hit.value;
+    const m = (text || '').match(/clauses\s*(?:&|and)?\s*warranties/i);
+    if (m) {
+      const rest = text.slice(m.index).replace(/^[^\n]*\n?/, '');
+      const stop = rest.search(NEXT_SECTION_RX);
+      const block = stop >= 0 ? rest.slice(0, stop) : rest;
+      if (block.trim().length > src.length) src = block;
+    }
+    if (!src) return [];
+    src = src.replace(/clauses\s*(?:&|and)?\s*warranties\s*[:\-]?/i, ' ');
+    let items;
+    if (/(?:^|\s)\d{1,3}[.)]\s/.test(src)) {
+      items = src.split(/\s+(?=\d{1,3}[.)]\s)/);
+    } else {
+      items = src.split(/\s*[;\n•·]\s*|\s{2,}(?=[A-Z])/);
+    }
+    return items.map((s) => s.replace(/\s+/g, ' ').trim())
+      .filter((s) => s && s.length > 2 && !/^(clauses|warranties|&|and)$/i.test(s));
+  }
+
+  // FULL-BLOCK CAPTURE — grab a field's entire detail (all lines) from its
+  // header to the next field header, so nothing is truncated to one line.
+  const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Distinctive next-field headers that mark where a captured block must STOP.
+  const BOUNDARY_HEADERS = [
+    'policy type', 'nature of business', 'period of insurance', 'locations of risk', 'location of risk',
+    'sum insured', 'total sum insured', 'deductibles', 'clauses and warranties', 'clauses',
+    'premium rate', 'brokerage rate', 'applicable premium', 'premium charges', 'premium payment',
+    'revenue memorandum', 'revenue regulation', 'lead insurer', 'several liability', 'claims information',
+    'choice of jurisdiction', 'policy form', 'validity of quote', 'percentage share',
+  ];
+  const BOUNDARY_RX = new RegExp('\\b(?:' + BOUNDARY_HEADERS.map(escapeRx).join('|') + ')\\b', 'i');
+  function grabBlock(candidates, text) {
+    if (!text) return '';
+    let best = null;
+    for (const c of candidates) {
+      const rx = new RegExp('(?:^|\\n)\\s*' + escapeRx(c) + '\\s*[:\\-–]', 'i');
+      const m = rx.exec(text);
+      if (m && (best === null || m.index < best.i)) best = { i: m.index, e: m.index + m[0].length };
+    }
+    if (!best) return '';
+    const rest = text.slice(best.e);
+    const n = rest.search(BOUNDARY_RX);
+    let block = n >= 0 ? rest.slice(0, n) : rest;
+    if (block.length > 1500) block = block.slice(0, 1500);
+    return block.replace(/\s+/g, ' ').trim();
+  }
+  function splitSectioned(block) {
+    const m = String(block).match(/section\s*(?:ii|2)\b|third\s*party/i);
+    if (m && m.index > 0) return { s1: block.slice(0, m.index).trim(), s2: block.slice(m.index).trim() };
+    return { s1: String(block).trim(), s2: '' };
+  }
+  function sectionVal(chunk) {
+    if (!chunk) return '';
+    return String(chunk).replace(/^\s*section\s*(?:i{1,2}|1|2)\b[^:]*:?\s*/i, '').trim() || String(chunk).trim();
+  }
+
+  function extract(parsed, fileName) {
+    const prop = emptyProposal(fileName);
+    prop.rawText = parsed.text || '';
+    const pairs = parsed.pairs || [];
+    const flagged = [];
+    // Single-value fields take their own cell value (no block) so they never
+    // bleed into the next field.
+    const grab = (key, cands) => {
+      const hit = findField(cands || FIELD_LABELS[key], pairs);
+      if (hit) { if (hit.soft) flagged.push(key); return String(hit.value).trim(); }
+      return '';
+    };
+    // Multi-line fields (Cover + sectioned fields) take the fuller of cell value
+    // or the full detail block, bounded by the next distinctive field.
+    const fullSrc = (list) => {
+      const hit = findField(list, pairs);
+      const pairVal = hit ? String(hit.value).trim() : '';
+      const block = grabBlock(list, parsed.text || '');
+      return block.length > pairVal.length ? block : pairVal;
+    };
+
+    prop.insurers = extractInsurers(pairs, parsed.text || '', fileName);
+    prop.policyType = grab('policyType');
+    prop.insured = grab('insured');
+    prop.natureOfBusiness = grab('natureOfBusiness');
+    prop.project = grab('project');
+    prop.periodOfInsurance = extractPeriod(pairs);
+    prop.locationsOfRisks = grab('locationsOfRisks');
+    prop.cover = fullSrc(FIELD_LABELS.cover);
+
+    const siSrc = fullSrc(FIELD_LABELS.sumInsured);
+    if (siSrc) {
+      const parts = splitSectioned(siSrc);
+      const m1 = parseMoney(parts.s1);
+      if (m1) prop.sumInsured.sections[0].money = m1; else flagged.push('sumInsured');
+      const m2 = parseMoney(parts.s2);
+      if (m2) prop.sumInsured.sections[1].money = m2;
+    }
+
+    const deSrc = fullSrc(FIELD_LABELS.deductibles);
+    if (deSrc) {
+      const parts = splitSectioned(deSrc);
+      prop.deductibles.sections[0].value = sectionVal(parts.s1);
+      if (parts.s2) prop.deductibles.sections[1].value = sectionVal(parts.s2);
+    }
+
+    prop.clausesAndWarranties = extractClauses(pairs, parsed.text || '');
+    const prSrc = fullSrc(FIELD_LABELS.premiumRate);
+    if (prSrc) {
+      const parts = splitSectioned(prSrc);
+      prop.premiumRate.sections[0].value = sectionVal(parts.s1);
+      if (parts.s2) prop.premiumRate.sections[1].value = sectionVal(parts.s2);
+    }
+    prop.brokerageRate = grab('brokerageRate');
+    prop.premium = extractPremium(pairs);
+    if (!prop.premium.total && prop.premium.lineItems.length === 0) flagged.push('premium');
+    prop.premiumPaymentTerms = grab('premiumPaymentTerms');
+    prop.birReference = grab('birReference');
+    prop.leadInsurerClause = grab('leadInsurerClause');
+    prop.severalLiabilityClause = grab('severalLiabilityClause');
+    prop.claimsInformation = grab('claimsInformation');
+    prop.choiceOfJurisdiction = grab('choiceOfJurisdiction');
+    prop.policyForm = grab('policyForm');
+    prop.validityOfQuote = grab('validityOfQuote');
+
+    // confidence: how many core fields did we recover from HARD table rows?
+    const core = [prop.insurers.length, prop.policyType, prop.insured,
+      prop.sumInsured, prop.premium.total || prop.premium.lineItems.length];
+    const got = core.filter(Boolean).length;
+    prop.extractionConfidence = got >= 4 ? 'high' : got >= 2 ? 'medium' : 'low';
+    prop.flaggedFields = [...new Set(flagged)];
+    return prop;
+  }
+  CMP.extract = extract;
+
+  /* ---------------------------------------------------------------
+   * AI-EXTRACTION HOOK (optional, off by default)
+   *
+   * A browser-only app has nowhere safe to hold an API key, so the
+   * heuristic engine above is the working default. To enable AI
+   * extraction, host a tiny proxy that forwards {text} to Claude with
+   * the schema prompt and returns JSON, then set CMP.AI_ENDPOINT below.
+   * The proxy — not the browser — holds the API key.
+   *
+   *   POST {endpoint}  body: { text }   ->   { ...proposalJSON }
+   *
+   * Instruct the model to copy premium / sum-insured / deductible
+   * figures CHARACTER-FOR-CHARACTER and to return insurers as an array.
+   * ------------------------------------------------------------- */
+  CMP.AI_ENDPOINT = null;
+  CMP.extractWithAI = async function (parsed, fileName) {
+    if (!CMP.AI_ENDPOINT) throw new Error('AI extraction not configured');
+    const r = await fetch(CMP.AI_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: parsed.text }),
+    });
+    if (!r.ok) throw new Error('AI endpoint error ' + r.status);
+    const json = await r.json();
+    return Object.assign(emptyProposal(fileName), json, { rawText: parsed.text });
+  };
+
+  /* ---------------------------------------------------------------
+   * LOGO helpers
+   * ------------------------------------------------------------- */
+  function initials(name) {
+    if (!name) return '?';
+    const words = name.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+    if (!words.length) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  CMP.initials = initials;
+
+  // Validity-of-quote lapse check against a reference date (today).
+  CMP.quoteStatus = function (validityText, refDate) {
+    if (!validityText) return { known: false };
+    const t = validityText.trim();
+    // try to find an explicit date
+    const dateMatch = t.match(/(\d{4}-\d{2}-\d{2})|(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})|([A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})|(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})/);
+    if (dateMatch) {
+      const d = new Date(dateMatch[0]);
+      if (!isNaN(d)) return { known: true, date: d, lapsed: d < refDate };
+    }
+    return { known: false };
+  };
+
+  /* ---------------------------------------------------------------
+   * OVERALL ANALYSIS — aggregate analytics across all proposals.
+   * Verbatim slip figures are surfaced as-is; anything the app derives
+   * (spread, average, saving %) is labelled "computed" so it is never
+   * confused with a figure copied from a slip.
+   * ------------------------------------------------------------- */
+  CMP.analyze = function (proposals, refDate) {
+    const A = { count: proposals.length };
+    const withTotal = proposals
+      .map((p) => ({ p, amt: CMP.premiumTotalAmount(p), disp: CMP.premiumTotalDisplay(p) }))
+      .filter((x) => x.amt != null);
+    A.withTotalCount = withTotal.length;
+    if (withTotal.length) {
+      A.lowest = withTotal.reduce((a, b) => (a.amt <= b.amt ? a : b));
+      A.highest = withTotal.reduce((a, b) => (a.amt >= b.amt ? a : b));
+      const amts = withTotal.map((x) => x.amt);
+      A.avg = amts.reduce((s, x) => s + x, 0) / amts.length;
+      A.spread = A.highest.amt - A.lowest.amt;
+      A.savingsPct = A.highest.amt > 0 ? (A.spread / A.highest.amt) * 100 : 0;
+      A.symbol = (A.lowest.disp.match(/[₱$€£¥]/) || ['₱'])[0];
+    }
+    const cov = (p) => p.clausesAndWarranties.length + ((p.cover || '').length / 200);
+    A.coverage = proposals.map((p) => ({ p, score: cov(p), clauses: p.clausesAndWarranties.length }));
+    if (proposals.length) A.mostCoverage = A.coverage.reduce((a, b) => (a.score >= b.score ? a : b));
+    A.lapsed = proposals.filter((p) => { const q = CMP.quoteStatus(p.validityOfQuote, refDate); return q.known && q.lapsed; });
+    A.review = proposals.filter((p) => p.extractionConfidence === 'low' || (p.flaggedFields && p.flaggedFields.length));
+    A.policyTypes = [...new Set(proposals.map((p) => p.policyType).filter(Boolean))];
+    A.completeness = proposals.map((p) => {
+      const total = 8; let filled = 0;
+      if (p.insurers.length) filled++;
+      if (p.policyType) filled++;
+      if (p.insured) filled++;
+      if (CMP.primaryMoney(p.sumInsured)) filled++;
+      if (p.cover) filled++;
+      if (CMP.premiumTotalAmount(p) != null || (p.premium && p.premium.lineItems.length)) filled++;
+      if (p.periodOfInsurance && (p.periodOfInsurance.from || p.periodOfInsurance.to)) filled++;
+      if (p.clausesAndWarranties.length) filled++;
+      return { p, pct: Math.round((filled / total) * 100) };
+    });
+    return A;
+  };
+
+  // Interactive value ranking. weight 0 = all price, 1 = all coverage.
+  CMP.valueRanking = function (proposals, weight) {
+    const totals = proposals.map((p) => CMP.premiumTotalAmount(p));
+    const priced = totals.filter((x) => x != null);
+    const minP = priced.length ? Math.min(...priced) : null;
+    const maxP = priced.length ? Math.max(...priced) : null;
+    const cov = proposals.map((p) => p.clausesAndWarranties.length + ((p.cover || '').length / 200));
+    const minC = Math.min(...cov), maxC = Math.max(...cov);
+    return proposals
+      .map((p, i) => {
+        const amt = totals[i];
+        let priceScore = 0.5;
+        if (amt == null) priceScore = 0;
+        else if (maxP === minP) priceScore = 1;
+        else priceScore = (maxP - amt) / (maxP - minP);
+        const covScore = maxC === minC ? 1 : (cov[i] - minC) / (maxC - minC);
+        return { p, score: (1 - weight) * priceScore + weight * covScore, priceScore, covScore, hasPrice: amt != null };
+      })
+      .sort((a, b) => b.score - a.score);
+  };
+
+  // Format an app-computed amount (NOT a verbatim slip figure) with 2 decimals.
+  CMP.formatComputed = function (amount, symbol) {
+    if (amount == null || !isFinite(amount)) return '—';
+    return (symbol || '') + ' ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  /* ---------------------------------------------------------------
+   * COMPARATIVE MATRIX — build a broker-style compliance matrix from
+   * extracted proposals: a baseline ("proposed terms") column plus one
+   * column per insurer, each cell a check (✓ = as proposed) when it
+   * matches the baseline, or the specific deviation text otherwise.
+   * ------------------------------------------------------------- */
+  CMP.isDeleted = function (s) { return /^\s*(deleted|not applicable|n\/?a|nil)\b/i.test(String(s || '')); };
+
+  CMP.buildMatrixFromProposals = function (proposals, baselineId) {
+    const nm = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
+    const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const money = (m) => (m ? CMP.formatMoney(m) : '');
+    const baseline = baselineId && baselineId !== 'none' ? proposals.find((p) => p.id === baselineId) : null;
+    const colProps = baseline ? proposals.filter((p) => p.id !== baseline.id) : proposals;
+    const columns = colProps.map((p) => ({ id: p.id, name: nm(p), logoUrl: (p.insurers[0] && p.insurers[0].logoUrl) || '', p }));
+
+    function makeRow(field, getter, opts) {
+      opts = opts || {};
+      const key = opts.key || '';
+      const g = (p) => {
+        if (key && p && p.overrides && p.overrides[key] != null && p.overrides[key] !== '') return p.overrides[key];
+        return getter(p);
+      };
+      const bt = baseline ? g(baseline) : (opts.howden || '');
+      const cells = {};
+      columns.forEach((c) => {
+        const ct = g(c.p);
+        if (!ct) cells[c.id] = { t: 'empty', raw: '' };
+        else if (baseline && bt && norm(ct) === norm(bt)) cells[c.id] = { t: 'check', raw: ct };
+        else cells[c.id] = { t: 'text', v: ct, raw: ct, dev: !!(baseline && bt && norm(ct) !== norm(bt)) };
+      });
+      return { field: field, howden: baseline ? bt : (opts.howden || ''), cells: cells, newField: opts.newField !== false, total: !!opts.total, key: key, subLabel: opts.subLabel };
+    }
+
+    const rows = [];
+
+    // Sum Insured / Deductibles / Premium Rate — each shown in ONE box, sections
+    // listed line by line (just like the quotation slip field).
+    const core = [
+      ['POLICY TYPE', (p) => p.policyType, 'policyType'],
+      ['INSURED', (p) => p.insured, 'insured'],
+      ['NATURE OF BUSINESS', (p) => p.natureOfBusiness, 'natureOfBusiness'],
+      ['PROJECT', (p) => p.project, 'project'],
+      ['PERIOD OF INSURANCE', (p) => [p.periodOfInsurance.from, p.periodOfInsurance.to].filter(Boolean).join(' – '), 'periodOfInsurance'],
+      ['LOCATIONS OF RISKS', (p) => p.locationsOfRisks, 'locationsOfRisks'],
+      ['COVER', (p) => p.cover, 'cover'],
+      ['SUM INSURED', (p) => CMP.formatSections(p.sumInsured), 'sumInsured'],
+      ['DEDUCTIBLES', (p) => CMP.formatSections(p.deductibles), 'deductibles'],
+      ['PREMIUM RATE', (p) => CMP.formatSections(p.premiumRate), 'premiumRate'],
+      ['BROKERAGE RATE', (p) => p.brokerageRate, 'brokerageRate'],
+    ];
+    core.forEach((f) => rows.push(makeRow(f[0], f[1], { key: f[2] })));
+
+    const seen = new Map();
+    proposals.forEach((p) => (p.premium && p.premium.lineItems ? p.premium.lineItems : []).forEach((li) => { const k = norm(li.label); if (!seen.has(k)) seen.set(k, li.label); }));
+    const premLabels = [...seen.values()];
+    const compVal = (p, label) => { const items = p.premium && p.premium.lineItems ? p.premium.lineItems : []; const li = items.find((x) => norm(x.label) === norm(label)); return li ? CMP.formatMoney(li.money) : ''; };
+    premLabels.forEach((lab, i) => rows.push(makeRow(i === 0 ? 'APPLICABLE PREMIUM CHARGES' : '', (p) => compVal(p, lab), { howden: lab, newField: i === 0, subLabel: lab, key: 'premium:' + lab })));
+    rows.push(makeRow('', (p) => (p.premium && p.premium.total ? CMP.formatMoney(p.premium.total.money) : ''), { howden: 'TOTAL PREMIUM', newField: premLabels.length === 0, total: true, subLabel: 'TOTAL PREMIUM', key: 'premiumTotal' }));
+
+    // Clauses & Warranties — the FULL numbered list shown in one whole box per
+    // insurer, just like the quotation slip (every wording captured, numbered).
+    const numberedClauses = (p) => (p.clausesAndWarranties || [])
+      .map((c, i) => (/^\s*\d+[.)]/.test(String(c)) ? String(c).trim() : (i + 1) + '. ' + String(c).trim()))
+      .join('\n');
+
+    const tail = [
+      ['PREMIUM PAYMENT TERMS', (p) => p.premiumPaymentTerms, 'premiumPaymentTerms'],
+      ['CLAUSES & WARRANTIES', numberedClauses, 'clauses'],
+      ['LEAD INSURER CLAUSE', (p) => p.leadInsurerClause, 'leadInsurerClause'],
+      ['SEVERAL LIABILITY CLAUSE', (p) => p.severalLiabilityClause, 'severalLiabilityClause'],
+      ['CLAIMS INFORMATION', (p) => p.claimsInformation, 'claimsInformation'],
+      ['CHOICE OF JURISDICTION, LAW & PRACTICE', (p) => p.choiceOfJurisdiction, 'choiceOfJurisdiction'],
+      ['POLICY FORM', (p) => p.policyForm, 'policyForm'],
+      ['VALIDITY OF QUOTE', (p) => p.validityOfQuote, 'validityOfQuote'],
+    ];
+    tail.forEach((f) => rows.push(makeRow(f[0], f[1], { key: f[2] })));
+
+    const insuredName = [...new Set(proposals.map((p) => (p.insured || '').trim()).filter(Boolean))][0] || '';
+    return {
+      // Header reads: Insured name (heading) with "Comparative Matrix" directly below.
+      eyebrow: '',
+      title: insuredName || 'Comparative Matrix',
+      subtitle: insuredName ? 'Comparative Matrix' : '',
+      baseline: baseline ? { id: baseline.id, name: nm(baseline), role: 'Selected baseline' } : null,
+      columns: columns.map((c) => ({ id: c.id, name: c.name, logoUrl: c.logoUrl })),
+      rows: rows,
+      footnotes: [],
+    };
+  };
+
+  /* ---------------------------------------------------------------
+   * EXPORT — write the comparative matrix to a real .xlsx workbook,
+   * entirely in the browser (SheetJS). Cells become ✓ / deviation / —
+   * exactly as shown; money strings preserved verbatim.
+   * ------------------------------------------------------------- */
+  CMP.cellToText = function (cell) {
+    if (!cell || cell.t === 'empty') return '—';
+    if (cell.t === 'check') return '✓ As proposed';
+    return cell.v || '';
+  };
+  // Brief on-screen confirmation so a silent browser download is never mistaken
+  // for "nothing happened".
+  CMP.toast = function (msg) {
+    try {
+      let t = document.getElementById('cmp-toast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'cmp-toast';
+        t.style.cssText = 'position:fixed;z-index:99999;left:50%;bottom:24px;transform:translateX(-50%);max-width:88vw;background:#211E24;color:#fff;padding:10px 16px;border-radius:8px;font:13px/1.4 Arial,Helvetica,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.28);opacity:0;transition:opacity .2s;text-align:center';
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity = '1';
+      clearTimeout(t._h);
+      t._h = setTimeout(() => { t.style.opacity = '0'; }, 3200);
+    } catch (e) { /* non-fatal */ }
+  };
+  // Robust file download: Blob + anchor, with a data-URI fallback, and a toast.
+  CMP.triggerDownload = function (filename, blob, quiet) {
+    let ok = false;
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.rel = 'noopener'; a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 400);
+      ok = true;
+    } catch (e) {
+      try {
+        const rd = new FileReader();
+        rd.onload = () => { try { const w = window.open(rd.result, '_blank'); if (!w) CMP.toast('Pop-up blocked — allow pop-ups or open this file in a browser tab to download.'); } catch (er) {} };
+        rd.readAsDataURL(blob);
+        ok = true;
+      } catch (er) {}
+    }
+    if (ok && !quiet) CMP.toast('Downloaded “' + filename + '” — check your Downloads folder.');
+    return ok;
+  };
+  function triggerDownload(filename, blob) { return CMP.triggerDownload(filename, blob); }
+  CMP.matrixToAoa = function (matrix) {
+    const hasBaseline = !!matrix.baseline;
+    const header = ['Terms & Conditions'];
+    if (hasBaseline) header.push(matrix.baseline.name + ' (Proposed)');
+    matrix.columns.forEach((c) => header.push(c.name));
+    const aoa = [];
+    if (matrix.title) aoa.push([matrix.title]);
+    if (matrix.subtitle) aoa.push([matrix.subtitle]);
+    if (matrix.eyebrow) aoa.push([matrix.eyebrow]);
+    aoa.push([]);
+    aoa.push(header);
+    matrix.rows.forEach((r) => {
+      const row = [r.field || r.subLabel || ''];
+      if (hasBaseline) row.push(r.howden || '');
+      matrix.columns.forEach((c) => row.push(CMP.cellToText(r.cells[c.id])));
+      aoa.push(row);
+    });
+    if (matrix.footnotes && matrix.footnotes.length) {
+      aoa.push([]);
+      aoa.push(['Additional clauses, warranties & subjectivities']);
+      matrix.footnotes.forEach((f) => { aoa.push([f.name]); f.lines.forEach((l) => aoa.push(['', l])); });
+    }
+    return aoa;
+  };
+  function aoaToCsv(aoa) {
+    return aoa.map((row) => row.map((cell) => {
+      const s = String(cell == null ? '' : cell);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')).join('\r\n');
+  }
+  // Filename convention: {ClientName}_ComparativeMatrix_{YYYYMMDD}[.ext].
+  // Pass ext='' to get the base name (used as the print document <title> so the
+  // browser's "Save as PDF" dialog pre-fills the right filename).
+  CMP.exportFilename = function (matrix, ext) {
+    const client = String((matrix && matrix.title) || 'Client')
+      .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'Client';
+    const d = new Date();
+    const ymd = '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    const base = client + '_ComparativeMatrix_' + ymd;
+    return ext ? base + '.' + ext : base;
+  };
+  CMP.exportMatrixXlsx = function (matrix, filename) {
+    try {
+      const aoa = CMP.matrixToAoa(matrix);
+      const XLSX = window.XLSX;
+      if (XLSX && XLSX.utils) {
+        const hasBaseline = !!matrix.baseline;
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = [{ wch: 34 }].concat(hasBaseline ? [{ wch: 46 }] : []).concat(matrix.columns.map(() => ({ wch: 32 })));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Comparative Matrix');
+        const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        CMP.triggerDownload(filename || CMP.exportFilename(matrix, 'xlsx'), new Blob([out], { type: 'application/octet-stream' }));
+      } else {
+        // Spreadsheet engine unavailable (offline / CDN blocked) — export CSV,
+        // which Excel opens natively. BOM keeps ₱ and accents intact.
+        const csv = '﻿' + aoaToCsv(aoa);
+        CMP.triggerDownload(CMP.exportFilename(matrix, 'csv'), new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        CMP.toast('Saved as CSV (opens in Excel) — the .xlsx engine was blocked here.');
+      }
+    } catch (e) {
+      alert('Sorry — the Excel export failed: ' + (e && e.message ? e.message : e));
+    }
+  };
+
+  /* ---- Safe storage: localStorage when available, in-memory fallback --------
+     Some environments (sandboxed file previews / iframes without
+     allow-same-origin) throw on ANY localStorage access. Detect that once and
+     transparently fall back to an in-session memory store, so Save / Archive
+     never error — they simply don't persist across reloads in that case. */
+  CMP.storage = (function () {
+    var mem = {}, ok = false;
+    try {
+      var t = '__cmp_test__';
+      window.localStorage.setItem(t, '1');
+      window.localStorage.removeItem(t);
+      ok = true;
+    } catch (e) { ok = false; }
+    return {
+      available: ok,
+      get: function (key) {
+        if (ok) { try { return window.localStorage.getItem(key); } catch (e) { ok = false; } }
+        return Object.prototype.hasOwnProperty.call(mem, key) ? mem[key] : null;
+      },
+      set: function (key, val) {
+        if (ok) { try { window.localStorage.setItem(key, val); return; } catch (e) { ok = false; } }
+        mem[key] = String(val);
+      },
+      remove: function (key) {
+        if (ok) { try { window.localStorage.removeItem(key); return; } catch (e) { ok = false; } }
+        delete mem[key];
+      },
+    };
+  })();
+
+  /* ---- Archive: saved matrices persisted in the browser (localStorage) ------ */
+  CMP.ARCHIVE_KEY = 'archived_matrices';
+  CMP.archiveLoad = function () {
+    try {
+      const raw = CMP.storage.get(CMP.ARCHIVE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  };
+  CMP.buildArchiveRecord = function (proposals, baselineId, meta) {
+    const p0 = (proposals && proposals[0]) || {};
+    const clientName = (p0.insured || '').trim() || (meta && meta.title) || 'Untitled comparison';
+    const policyType = (p0.policyType || '').trim() || (proposals || []).map((p) => p.policyType).filter(Boolean)[0] || '';
+    const title = policyType ? clientName + ' — ' + policyType : clientName;
+    const nowIso = new Date().toISOString();
+    return {
+      id: 'arc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+      title: title, client_name: clientName, policy_type: policyType,
+      created_at: nowIso, saved_at: nowIso, saved_by: (meta && meta.saved_by) || 'You',
+      baselineId: baselineId || 'none',
+      proposals: JSON.parse(JSON.stringify(proposals || [])),
+    };
+  };
+  CMP.archiveSave = function (proposals, baselineId, meta) {
+    if (!proposals || !proposals.length) throw new Error('Nothing to save yet — upload some slips first.');
+    const rec = CMP.buildArchiveRecord(proposals, baselineId, meta);
+    const list = CMP.archiveLoad();
+    list.unshift(rec);
+    CMP.storage.set(CMP.ARCHIVE_KEY, JSON.stringify(list)); // in-memory fallback if storage is blocked
+    return rec;
+  };
+  CMP.archiveDelete = function (id) {
+    const list = CMP.archiveLoad().filter((r) => r.id !== id);
+    CMP.storage.set(CMP.ARCHIVE_KEY, JSON.stringify(list));
+    return list;
+  };
+  /* ---- Durable, sandbox-proof archive backup: export/import to a JSON file ---
+     Browser storage is blocked in sandboxed previews, so this lets the user
+     keep the whole archive as a file that survives closing, moving machines, or
+     sharing with a colleague — and restore it anywhere. */
+  CMP.ARCHIVE_FILE_VERSION = 1;
+  CMP.archiveExport = function () {
+    const list = CMP.archiveLoad();
+    const payload = {
+      app: 'howden-comparator', kind: 'archive-backup',
+      version: CMP.ARCHIVE_FILE_VERSION, exported_at: new Date().toISOString(),
+      count: list.length, records: list,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const stamp = new Date().toISOString().slice(0, 10);
+    CMP.triggerDownload('howden-archive-' + stamp + '.json', blob);
+    return list.length;
+  };
+  CMP.archiveImport = function (text, mode) {
+    // mode: 'merge' (default) keeps existing records and adds new ones (dedup by
+    // id); 'replace' overwrites the archive with the file's contents.
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error('That file isn’t a valid archive backup.'); }
+    const incoming = Array.isArray(data) ? data : (data && Array.isArray(data.records) ? data.records : null);
+    if (!incoming) throw new Error('That file isn’t a valid archive backup.');
+    const clean = incoming.filter((r) => r && r.id && Array.isArray(r.proposals));
+    if (!clean.length) throw new Error('No saved comparisons found in that file.');
+    let list, added;
+    if (mode === 'replace') {
+      list = clean.slice(); added = clean.length;
+    } else {
+      const existing = CMP.archiveLoad();
+      const seen = new Set(existing.map((r) => r.id));
+      const fresh = clean.filter((r) => !seen.has(r.id));
+      added = fresh.length;
+      list = fresh.concat(existing);
+    }
+    list.sort((a, b) => String(b.saved_at || '').localeCompare(String(a.saved_at || '')));
+    CMP.storage.set(CMP.ARCHIVE_KEY, JSON.stringify(list));
+    return { list: list, added: added };
+  };
+
+  /* ---- Single comparison as a file: Save downloads it, Open re-loads it ------
+     The durable "Save" for sandboxed use — the whole working comparison
+     (proposals + baseline + every manual edit) is written to a .json file the
+     user keeps and re-opens later to continue exactly where they left off. */
+  CMP.COMPARISON_FILE_VERSION = 1;
+  CMP.comparisonFilename = function (proposals) {
+    const p0 = (proposals && proposals[0]) || {};
+    const slug = (s) => (s || '').trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
+    const client = slug(p0.insured) || 'comparison';
+    const policy = slug(p0.policyType);
+    const stamp = new Date().toISOString().slice(0, 10);
+    return [client, policy, stamp].filter(Boolean).join('-') + '.comparison.json';
+  };
+  CMP.comparisonExport = function (proposals, baselineId) {
+    if (!proposals || !proposals.length) throw new Error('Nothing to save yet — upload some slips first.');
+    const p0 = proposals[0] || {};
+    const payload = {
+      app: 'howden-comparator', kind: 'comparison', version: CMP.COMPARISON_FILE_VERSION,
+      saved_at: new Date().toISOString(),
+      client_name: (p0.insured || '').trim(), policy_type: (p0.policyType || '').trim(),
+      baselineId: baselineId || 'none',
+      proposals: JSON.parse(JSON.stringify(proposals)),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const name = CMP.comparisonFilename(proposals);
+    CMP.triggerDownload(name, blob);
+    return name;
+  };
+  CMP.archivePolicyTypes = function (list) {
+    return Array.from(new Set((list || []).map((r) => r.policy_type).filter(Boolean)));
+  };
+
+  CMP.escHtml = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  };
+  CMP.matrixToPrintableHtml = function (matrix, autoPrint) {
+    const E = CMP.escHtml;
+    const hasBaseline = !!matrix.baseline;
+    const cols = matrix.columns || [];
+    const cellHtml = (cell) => {
+      if (!cell || cell.t === 'empty') return '<span style="color:#cbd5e1">—</span>';
+      if (cell.t === 'check') return '<span style="color:#059669;font-weight:700">✓</span>';
+      const deleted = CMP.isDeleted(cell.v);
+      return '<span style="' + (deleted ? 'color:#DC2626;font-weight:600' : '') + '">' + E(cell.v) + '</span>';
+    };
+    let thead = '<th class="lbl">Terms &amp; Conditions</th>';
+    if (hasBaseline) thead += '<th class="base">' + E(matrix.baseline.name) + ' (Proposed)</th>';
+    cols.forEach((c) => { thead += '<th>' + E(c.name) + '</th>'; });
+    let tbody = '';
+    (matrix.rows || []).forEach((r) => {
+      tbody += '<tr' + (r.newField ? ' class="nf"' : '') + '>';
+      tbody += '<th class="lbl">' + E(r.field || '') + '</th>';
+      if (hasBaseline) tbody += '<td class="base">' + E(r.howden || '') + '</td>';
+      cols.forEach((c) => { tbody += '<td>' + cellHtml(r.cells[c.id]) + '</td>'; });
+      tbody += '</tr>';
+    });
+    let foot = '';
+    if (matrix.footnotes && matrix.footnotes.length) {
+      foot = '<div class="foot"><h3>Additional clauses, warranties &amp; subjectivities</h3>';
+      matrix.footnotes.forEach((f) => { foot += '<div><strong>' + E(f.name) + '</strong><ul>' + f.lines.map((l) => '<li>' + E(l) + '</li>').join('') + '</ul></div>'; });
+      foot += '</div>';
+    }
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + E(matrix.title || 'Comparative Matrix') + '</title><style>'
+      + '*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;margin:14px;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+      + '.band{background:#211E24;color:#fff;padding:14px 16px;border-radius:8px 8px 0 0}'
+      + '.eyebrow{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#3F7FD6;font-weight:700}'
+      + '.title{font-size:18px;font-weight:700}.sub{font-size:13px;color:#cbd5e1}'
+      + 'table{border-collapse:collapse;width:100%;font-size:11px;table-layout:fixed}'
+      + 'th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere}'
+      + 'thead th{background:#f1f5f9}.lbl{background:#f8fafc;font-weight:700;width:170px}.base{background:#E9F1FB}'
+      + 'tr.nf td,tr.nf th{border-top:2px solid #94a3b8}'
+      + '.foot{margin-top:12px;font-size:11px}.foot h3{font-size:12px;text-transform:uppercase;color:#475569}.foot ul{margin:2px 0 8px 16px;padding:0}'
+      + '.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;background:#211E24;color:#fff;padding:10px 14px;margin:-14px -14px 14px;border-radius:0 0 8px 8px}'
+      + '.bar button{background:#3F7FD6;color:#fff;border:0;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer}'
+      + '.bar button:hover{background:#00337A}.bar span{font-size:12px;color:#e2e8f0}'
+      + '@media print{.no-print{display:none!important}}'
+      + '@page{size:A3 landscape;margin:10mm}'
+      + '</style></head><body>'
+      + '<div class="bar no-print"><button type="button" onclick="window.print()">Save as PDF</button><span>Choose “Save as PDF” as the destination in the print dialog.</span></div>'
+      + '<div class="band">' + (matrix.eyebrow ? '<div class="eyebrow">' + E(matrix.eyebrow) + '</div>' : '') + '<div class="title">' + E(matrix.title || '') + '</div>' + (matrix.subtitle ? '<div class="eyebrow" style="margin-top:3px">' + E(matrix.subtitle) + '</div>' : '') + '</div>'
+      + '<table><thead><tr>' + thead + '</tr></thead><tbody>' + tbody + '</tbody></table>' + foot
+      + (autoPrint ? '<scr' + 'ipt>window.onload=function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},350);};</scr' + 'ipt>' : '')
+      + '</body></html>';
+  };
+  // jsPDF's built-in fonts use WinAnsi encoding, which lacks the peso sign and
+  // the check glyph — swap them for readable ASCII so amounts never garble.
+  function pdfSafe(s) { return String(s == null ? '' : s).replace(/₱/g, 'PHP ').replace(/[✓✔]/g, ''); }
+  function pdfCellFor(cell) {
+    if (!cell || cell.t === 'empty') return { content: '—', styles: { textColor: [148, 163, 184], halign: 'center' } };
+    if (cell.t === 'check') return { content: 'As proposed', styles: { textColor: [5, 150, 105], fontStyle: 'bold' } };
+    var v = cell.v || '';
+    if (CMP.isDeleted(v)) return { content: pdfSafe(v), styles: { textColor: [220, 38, 38], fontStyle: 'bold' } };
+    return { content: pdfSafe(v) };
+  }
+  // Build a real PDF document from the matrix (no pop-up, no print dialog).
+  // Returns a Blob, or null if the PDF engine didn't load (CDN blocked/offline).
+  CMP.buildMatrixPdfBlob = function (matrix) {
+    var ns = window.jspdf;
+    var JsPDF = ns && ns.jsPDF;
+    if (!JsPDF) return null;
+    var doc = new JsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+    if (typeof doc.autoTable !== 'function') return null;
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
+    var margin = 28;
+    var y = margin + 4;
+    if (matrix.eyebrow) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(214, 31, 105);
+      doc.text(pdfSafe(matrix.eyebrow).toUpperCase(), margin, y); y += 14;
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(33, 30, 36);
+    doc.text(pdfSafe(matrix.title || 'Comparative Matrix'), margin, y); y += 18;
+    if (matrix.subtitle) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100, 116, 139);
+      doc.text(pdfSafe(matrix.subtitle), margin, y); y += 14;
+    }
+    y += 6;
+    var hasBaseline = !!matrix.baseline;
+    var head = ['Terms & Conditions'];
+    if (hasBaseline) head.push(pdfSafe(matrix.baseline.name || 'Proposed') + ' (Proposed)');
+    matrix.columns.forEach(function (c) { head.push(pdfSafe(c.name || '')); });
+    var body = matrix.rows.map(function (r) {
+      var cells = [{ content: pdfSafe(r.field || r.subLabel || ''), styles: { fontStyle: 'bold', fillColor: [248, 250, 252] } }];
+      if (hasBaseline) cells.push({ content: pdfSafe(r.howden || ''), styles: { fillColor: [253, 242, 248] } });
+      matrix.columns.forEach(function (c) { cells.push(pdfCellFor(r.cells ? r.cells[c.id] : null)); });
+      return cells;
+    });
+    doc.autoTable({
+      head: [head], body: body, startY: y,
+      margin: { left: margin, right: margin },
+      tableWidth: pageW - margin * 2,
+      styles: { font: 'helvetica', fontSize: 8, cellPadding: 4, overflow: 'linebreak', valign: 'top', lineColor: [226, 232, 240], lineWidth: 0.5, textColor: [33, 30, 36] },
+      headStyles: { fillColor: [33, 30, 36], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+      columnStyles: { 0: { cellWidth: 150 } }
+    });
+    if (matrix.footnotes && matrix.footnotes.length) {
+      var fy = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 22;
+      var ensure = function (h) { if (fy + (h || 0) > pageH - margin) { doc.addPage(); fy = margin + 4; } };
+      ensure(16);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(33, 30, 36);
+      doc.text('Additional clauses, warranties & subjectivities', margin, fy); fy += 16;
+      matrix.footnotes.forEach(function (f) {
+        ensure(14);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(33, 30, 36);
+        doc.text(pdfSafe(f.name || ''), margin, fy); fy += 13;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(71, 85, 105);
+        (f.lines || []).forEach(function (l) {
+          doc.splitTextToSize(pdfSafe(l), pageW - margin * 2 - 12).forEach(function (ln) {
+            ensure(12); doc.text(ln, margin + 12, fy); fy += 12;
+          });
+        });
+        fy += 6;
+      });
+    }
+    return doc.output('blob');
+  };
+  CMP.exportMatrixPdf = function (matrix, win) {
+    // Preferred: build a REAL .pdf and download it. This needs no pop-up and no
+    // print dialog, so it works even inside sandboxed preview frames (where a
+    // new tab only ever comes up blank).
+    try {
+      var pdf = CMP.buildMatrixPdfBlob(matrix);
+      if (pdf) {
+        CMP.triggerDownload(CMP.exportFilename(matrix, 'pdf'), pdf, true);
+        CMP.toast('Saved your comparison as a PDF — check your Downloads folder.');
+        return;
+      }
+    } catch (e) { /* PDF engine unavailable — fall back to the printable-HTML paths below */ }
+    // Turn the comparison into a PDF. Tries three paths, most-preferred first,
+    // so it works in a standalone file AND inside sandboxed preview frames:
+    //   1) Show it in the NEW TAB the button opened — navigating to a Blob URL
+    //      renders reliably where writing into a blank pop-up (document.write)
+    //      is silently ignored.
+    //   2) If the tab was blocked, PRINT THIS PAGE — the print stylesheet hides
+    //      everything except the matrix, so no pop-up is needed at all.
+    //   3) Last resort, save a printable file the user can open and print.
+    var html = CMP.matrixToPrintableHtml(matrix, true);
+    var url = null;
+    try { url = URL.createObjectURL(new Blob([html], { type: 'text/html' })); } catch (e) { url = null; }
+    // 1) The tab opened by the click.
+    try {
+      var w = win || window.open('', '_blank');
+      if (w && !w.closed) {
+        if (url) { w.location.href = url; }
+        else { w.document.open(); w.document.write(html); w.document.close(); }
+        try { w.focus(); } catch (e) {}
+        CMP.toast('Opened your comparison in a new tab — choose “Save as PDF” in the print dialog.');
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    // 2) Pop-up blocked — print the current page in place (uses the @media print
+    //    rules that isolate #matrix-print). Only valid when the matrix is on screen.
+    try {
+      if (typeof document !== 'undefined' && document.getElementById('matrix-print')) {
+        CMP.toast('Opening the print dialog — choose “Save as PDF”.');
+        window.focus();
+        window.print();
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    // 3) Save a printable file as a guaranteed fallback.
+    CMP.triggerDownload('Comparative Matrix.html', new Blob([html], { type: 'text/html' }));
+    CMP.toast('Your browser blocked the new tab — I saved a printable file. Open it, then print to PDF.');
+  };
+
+  window.CMP = CMP;
+})();
+</script>
+
+<!-- ============================================================= -->
+<!-- 2) REACT UI LAYER                                              -->
+<!-- ============================================================= -->
+<script type="text/babel">
+const { useState, useCallback, useMemo, useRef, useEffect } = React;
+const CMP = window.CMP;
+const TODAY = new Date('2026-07-01T00:00:00');
+// Simple string fields edit the value directly (analytics stay in sync);
+// structured fields (money / sections / clauses) store a display override.
+const DIRECT_FIELDS = new Set([
+  'policyType', 'insured', 'natureOfBusiness', 'project', 'locationsOfRisks', 'cover',
+  'brokerageRate', 'premiumPaymentTerms', 'birReference', 'leadInsurerClause',
+  'severalLiabilityClause', 'claimsInformation', 'choiceOfJurisdiction', 'policyForm', 'validityOfQuote',
+]);
+const HOWDEN_LOGO = 'data:image/png;base64,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';
+
+/* ---------- small presentational helpers ---------- */
+
+function Logo({ name, url, size = 40 }) {
+  const s = { width: size, height: size };
+  if (url) {
+    return (
+      <div className="rounded-md bg-white ring-1 ring-slate-200 flex items-center justify-center overflow-hidden shrink-0" style={s}>
+        <img src={url} alt={name + ' logo'} className="max-w-full max-h-full object-contain" />
+      </div>
+    );
+  }
+  const palette = ['bg-sky-600','bg-[#0047AB]','bg-teal-600','bg-red-600','bg-amber-600','bg-violet-600'];
+  const idx = (name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
+  return (
+    <div className={'rounded-md text-white flex items-center justify-center font-semibold shrink-0 ' + palette[idx]} style={s}>
+      {CMP.initials(name)}
+    </div>
+  );
+}
+
+function InsurerHeader({ prop, onAssignLogo }) {
+  const fileRef = useRef();
+  const multi = prop.insurers.length > 1;
+  const primary = prop.insurers[0] || { name: prop.fileName || 'Unknown insurer' };
+  return (
+    <div className="flex items-start gap-3">
+      <Logo name={primary.name} url={primary.logoUrl} />
+      <div className="min-w-0 flex-1">
+        {multi ? (
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400 font-medium">Co-insurance placement</div>
+            <ul className="mt-0.5 space-y-0.5">
+              {prop.insurers.map((ins, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm">
+                  <span className="font-semibold text-slate-800 truncate">{ins.name || 'Unnamed'}</span>
+                  {ins.percentageShare && (
+                    <span className="text-xs font-medium text-slate-500 tnum">{ins.percentageShare}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className="font-semibold text-slate-800 leading-tight truncate">{primary.name || 'Unknown insurer'}</div>
+        )}
+        <button
+          className="mt-1 text-[11px] text-sky-600 hover:underline"
+          onClick={() => fileRef.current && fileRef.current.click()}
+        >
+          Assign logo
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => {
+            const f = e.target.files[0]; if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => onAssignLogo(prop.id, rd.result);
+            rd.readAsDataURL(f);
+          }} />
+      </div>
+    </div>
+  );
+}
+
+function ConfidenceDot({ level }) {
+  const map = { high: 'bg-emerald-500', medium: 'bg-amber-500', low: 'bg-red-500' };
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+      <span className={'w-2 h-2 rounded-full ' + (map[level] || 'bg-slate-400')} />
+      {level} confidence
+    </span>
+  );
+}
+
+function Amount({ money, big }) {
+  const txt = CMP.formatMoney(money);
+  const unknown = !money || !money.amountDisplay;
+  return (
+    <span className={(big ? 'text-2xl font-bold ' : 'text-sm ') + 'mono-amt tnum ' + (unknown ? 'text-red-500 text-sm font-normal italic' : 'text-slate-900')}>
+      {txt}
+    </span>
+  );
+}
+
+/* ---------- editable fields (typable amounts / rates) ---------- */
+// Click-to-edit money field. Typing is always allowed — handy when a figure
+// wasn't detected. Typed value stored VERBATIM (parseMoney keeps trailing zeros).
+function EditableAmount({ money, onChange, placeholder, big }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const display = money && money.amountDisplay ? (money.symbol || '') + ' ' + money.amountDisplay : '';
+  const commit = () => {
+    setEditing(false);
+    const t = (val || '').trim();
+    if (!t) return onChange(null);
+    onChange(CMP.parseMoney(t) || { amountDisplay: t, amount: null, currency: 'PHP', symbol: '' });
+  };
+  if (editing) {
+    return (
+      <input autoFocus value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') setEditing(false); }}
+        placeholder="e.g. 500,000.00"
+        className={'w-full mono-amt tnum rounded border border-[#0047AB] px-1.5 py-0.5 outline-none ' + (big ? 'text-lg font-bold' : 'text-sm')} />
+    );
+  }
+  return (
+    <button type="button" title="Click to edit"
+      onClick={() => { setVal(money && money.amountDisplay ? money.amountDisplay : ''); setEditing(true); }}
+      className={'group text-left mono-amt tnum ' + (display ? (big ? 'text-2xl font-bold text-slate-900' : 'text-sm text-slate-900') : 'text-sm italic text-red-500')}>
+      {display || placeholder || 'Not detected — tap to enter'}
+      <span className="ml-1 align-middle text-[10px] text-slate-300 group-hover:text-[#0047AB] no-print">✎</span>
+    </button>
+  );
+}
+
+// Click-to-edit plain text field (rate strings like "0.15%").
+function EditableText({ value, onChange, placeholder }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const commit = () => { setEditing(false); onChange((val || '').trim()); };
+  if (editing) {
+    return (
+      <input autoFocus value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') setEditing(false); }}
+        className="w-full text-sm rounded border border-[#0047AB] px-1.5 py-0.5 outline-none" />
+    );
+  }
+  return (
+    <button type="button" title="Click to edit" onClick={() => { setVal(value || ''); setEditing(true); }}
+      className={'group text-left text-sm ' + (value ? 'text-slate-700' : 'text-slate-400 italic')}>
+      {value || placeholder || 'Tap to enter'}
+      <span className="ml-1 text-[10px] text-slate-300 group-hover:text-[#0047AB] no-print">✎</span>
+    </button>
+  );
+}
+
+// Editable, labelled sub-fields for Sum Insured / Deductibles (Section I, II, …).
+function SectionedAmount({ field, onChange }) {
+  const secs = CMP.sectionsOf(field);
+  const update = (next) => onChange({ sections: next });
+  const setSec = (i, patch) => { const n = secs.slice(); n[i] = { ...n[i], ...patch }; update(n); };
+  const addSection = () => update([...secs, { label: 'New section', money: null }]);
+  const removeSection = (i) => { const n = secs.slice(); n.splice(i, 1); update(n); };
+  return (
+    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200">
+      {secs.map((s, i) => (
+        <div key={i} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+          <div className="min-w-0 flex-1"><EditableText value={s.label} onChange={(v) => setSec(i, { label: v })} placeholder="Section label" /></div>
+          <div className="flex items-center gap-1 shrink-0">
+            <EditableAmount money={s.money} onChange={(m) => setSec(i, { money: m })} placeholder="Tap to enter" />
+            <button type="button" onClick={() => removeSection(i)} title="Remove section" className="text-slate-300 hover:text-red-500 text-xs no-print">✕</button>
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] text-[#0047AB] hover:underline no-print">+ Add section</button>
+    </div>
+  );
+}
+
+// Editable, labelled sub-fields with text values (e.g. Premium Rate sections).
+function SectionedText({ field, onChange }) {
+  const secs = CMP.sectionsOf(field);
+  const update = (next) => onChange({ sections: next });
+  const setSec = (i, patch) => { const n = secs.slice(); n[i] = { ...n[i], ...patch }; update(n); };
+  const addSection = () => update([...secs, { label: 'New section', value: '' }]);
+  const removeSection = (i) => { const n = secs.slice(); n.splice(i, 1); update(n); };
+  return (
+    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200 overflow-hidden">
+      {secs.map((s, i) => (
+        <div key={i} className="flex items-center gap-2 px-2.5 py-1.5">
+          <div className="min-w-0 flex-1"><EditableText value={s.label} onChange={(v) => setSec(i, { label: v })} placeholder="Section label" /></div>
+          <span className="text-slate-300">:</span>
+          <div className="min-w-0 flex-1"><EditableText value={s.value} onChange={(v) => setSec(i, { value: v })} placeholder="Tap to enter" /></div>
+          <button type="button" onClick={() => removeSection(i)} title="Remove section" className="text-slate-300 hover:text-red-500 text-xs no-print">✕</button>
+        </div>
+      ))}
+      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] text-[#0047AB] hover:underline no-print">+ Add section</button>
+    </div>
+  );
+}
+
+/* ---------- premium breakdown block ---------- */
+function PremiumBlock({ premium, editable, hideTotal, onEditItem, onEditTotal }) {
+  const items = (premium && premium.lineItems) || [];
+  const hasAny = premium && (premium.total || items.length);
+  if (!hasAny && !editable) {
+    return <div className="text-sm italic text-red-500">Not detected — verify manually</div>;
+  }
+  if (hideTotal && !items.length) {
+    return <div className="text-sm italic text-slate-400">No premium charges detected</div>;
+  }
+  return (
+    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200 overflow-hidden">
+      {items.map((li, i) => (
+        <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5">
+          <span className="text-sm text-slate-600">{li.label}</span>
+          {editable ? <EditableAmount money={li.money} onChange={(m) => onEditItem(i, m)} /> : <Amount money={li.money} />}
+        </div>
+      ))}
+      {!hideTotal && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-100">
+          <span className="text-sm font-semibold text-slate-700">{premium && premium.total ? premium.total.label : 'TOTAL PREMIUM'}</span>
+          {editable
+            ? <EditableAmount money={premium && premium.total ? premium.total.money : null} onChange={onEditTotal} placeholder="Tap to enter total" big />
+            : (premium && premium.total
+              ? <Amount money={premium.total.money} big />
+              : <span className="text-sm italic text-red-500">Total not stated — verify manually</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- badges ---------- */
+function Badge({ children, tone }) {
+  const tones = {
+    price: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+    cover: 'bg-violet-100 text-violet-800 ring-violet-200',
+    lapse: 'bg-red-100 text-red-800 ring-red-200',
+    review: 'bg-amber-100 text-amber-800 ring-amber-200',
+  };
+  return <span className={'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ' + (tones[tone] || 'bg-slate-100 text-slate-700 ring-slate-200')}>{children}</span>;
+}
+
+/* ---------- expandable section ---------- */
+function Section({ title, children, defaultOpen }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div className="border-t border-slate-100 pt-2">
+      <button className="w-full flex items-center justify-between text-left" onClick={() => setOpen(!open)}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</span>
+        <span className="text-slate-400 text-xs">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && <div className="mt-1.5 text-sm text-slate-700 space-y-1.5">{children}</div>}
+    </div>
+  );
+}
+
+function Field({ label, value }) {
+  return (
+    <div>
+      <span className="text-[11px] uppercase tracking-wide text-slate-400">{label}</span>
+      <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">
+        {value ? value : <span className="italic text-slate-400">—</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- proposal card ---------- */
+function pcWithTotal(p, m) {
+  const premium = p.premium || { lineItems: [], total: null, currency: 'PHP' };
+  return { ...p, premium: { ...premium, total: m ? { label: (premium.total && premium.total.label) || 'TOTAL PREMIUM', money: m } : null } };
+}
+function pcWithItem(p, i, m) {
+  const premium = p.premium || { lineItems: [], total: null, currency: 'PHP' };
+  const items = premium.lineItems.slice();
+  if (m) items[i] = { ...items[i], money: m }; else items.splice(i, 1);
+  return { ...p, premium: { ...premium, lineItems: items } };
+}
+function ProposalCard({ prop, badges, onAssignLogo, onEdit }) {
+  const q = CMP.quoteStatus(prop.validityOfQuote, TODAY);
+  const edit = onEdit || (() => {});
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4 flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-2">
+        <InsurerHeader prop={prop} onAssignLogo={onAssignLogo} />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {prop.policyType && <Badge>{prop.policyType}</Badge>}
+        {badges.bestPrice && <Badge tone="price">Best Price (auto)</Badge>}
+        {badges.mostCoverage && <Badge tone="cover">Most Coverage (auto)</Badge>}
+        {q.known && q.lapsed && <Badge tone="lapse">Quote lapsed</Badge>}
+        {(prop.extractionConfidence === 'low' || prop.flaggedFields.length > 0) && <Badge tone="review">Needs review</Badge>}
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="text-base font-bold uppercase tracking-wide text-black">Sum Insured</div>
+          <div className="mt-1"><SectionedAmount field={prop.sumInsured} onChange={(v) => edit((p) => ({ ...p, sumInsured: v }))} /></div>
+        </div>
+        <div>
+          <div className="text-base font-bold uppercase tracking-wide text-black">Deductibles</div>
+          <div className="mt-1"><SectionedText field={prop.deductibles} onChange={(v) => edit((p) => ({ ...p, deductibles: v }))} /></div>
+        </div>
+        <div>
+          <div className="text-base font-bold uppercase tracking-wide text-black">Premium Rate</div>
+          <div className="mt-1"><SectionedText field={prop.premiumRate} onChange={(v) => edit((p) => ({ ...p, premiumRate: v }))} /></div>
+        </div>
+        <div>
+          <div className="text-base font-bold uppercase tracking-wide text-black">Brokerage Rate</div>
+          <div className="mt-1"><EditableText value={prop.brokerageRate} onChange={(v) => edit((p) => ({ ...p, brokerageRate: v }))} placeholder="Tap to enter" /></div>
+        </div>
+        <div>
+          <div className="text-base font-bold uppercase tracking-wide text-black">Applicable Premium Charges</div>
+          <div className="mt-1">
+            <PremiumBlock premium={prop.premium} editable
+              onEditItem={(i, m) => edit((p) => pcWithItem(p, i, m))}
+              onEditTotal={(m) => edit((p) => pcWithTotal(p, m))} />
+          </div>
+        </div>
+      </div>
+
+      {prop.rawText && (
+        <Section title="Full proposal text — all detected wordings" defaultOpen>
+          <pre className="max-h-72 overflow-auto cmp-scroll whitespace-pre-wrap break-words text-[12px] leading-relaxed text-slate-600 bg-slate-50 rounded p-2 ring-1 ring-slate-200">{prop.rawText}</pre>
+        </Section>
+      )}
+
+      <div className="flex items-center justify-between pt-1">
+        <ConfidenceDot level={prop.extractionConfidence} />
+        <span className="text-[11px] text-slate-400 truncate max-w-[55%]" title={prop.fileName}>{prop.fileName}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- comparison table ---------- */
+const TABLE_ROWS = [
+  { key: 'insurers', label: 'Insurer(s) / Share', get: (p) => p.insurers.map((i) => i.name + (i.percentageShare ? ' (' + i.percentageShare + ')' : '')).join('; ') },
+  { key: 'policyType', label: 'Policy Type', get: (p) => p.policyType },
+  { key: 'insured', label: 'Insured', get: (p) => p.insured },
+  { key: 'natureOfBusiness', label: 'Nature of Business', get: (p) => p.natureOfBusiness },
+  { key: 'project', label: 'Project / Asset', get: (p) => p.project },
+  { key: 'period', label: 'Period of Insurance', get: (p) => [p.periodOfInsurance.from, p.periodOfInsurance.to].filter(Boolean).join(' – ') },
+  { key: 'locationsOfRisks', label: 'Locations of Risks', get: (p) => p.locationsOfRisks },
+  { key: 'cover', label: 'Cover', get: (p) => p.cover },
+  { key: 'sumInsured', label: 'Sum Insured', money: true, get: (p) => p.sumInsured },
+  { key: 'deductibles', label: 'Deductibles', money: true, get: (p) => p.deductibles },
+  { key: 'premiumRate', label: 'Premium Rate', get: (p) => p.premiumRate },
+  { key: 'brokerageRate', label: 'Brokerage Rate', get: (p) => p.brokerageRate },
+  { key: 'premiumTotal', label: 'Total Premium', money: true, get: (p) => p.premium && p.premium.total ? p.premium.total.money : null },
+  { key: 'premiumPaymentTerms', label: 'Premium Payment Terms', get: (p) => p.premiumPaymentTerms },
+  { key: 'birReference', label: 'BIR RMO / RR Reference', get: (p) => p.birReference },
+  { key: 'clausesAndWarranties', label: 'Clauses & Warranties', get: (p) => p.clausesAndWarranties.join('; ') },
+  { key: 'leadInsurerClause', label: 'Lead Insurer Clause', get: (p) => p.leadInsurerClause },
+  { key: 'severalLiabilityClause', label: 'Several Liability Clause', get: (p) => p.severalLiabilityClause },
+  { key: 'claimsInformation', label: 'Claims Information', get: (p) => p.claimsInformation },
+  { key: 'choiceOfJurisdiction', label: 'Jurisdiction, Law & Practice', get: (p) => p.choiceOfJurisdiction },
+  { key: 'policyForm', label: 'Policy Form', get: (p) => p.policyForm },
+  { key: 'validityOfQuote', label: 'Validity of Quote', get: (p) => p.validityOfQuote },
+];
+
+function cellText(row, p) {
+  if (row.money) { const m = row.get(p); return m ? CMP.formatMoney(m) : ''; }
+  return row.get(p) || '';
+}
+
+function ComparisonTable({ proposals, onlyDiff, onAssignLogo }) {
+  const rows = useMemo(() => {
+    return TABLE_ROWS.filter((row) => {
+      if (!onlyDiff) return true;
+      const vals = proposals.map((p) => cellText(row, p).trim());
+      const uniq = new Set(vals.filter(Boolean));
+      // a row "differs" if there is more than one distinct non-empty value
+      return uniq.size > 1;
+    });
+  }, [proposals, onlyDiff]);
+
+  return (
+    <div className="cmp-scroll overflow-auto rounded-xl ring-1 ring-slate-200 bg-white">
+      <table className="min-w-full border-collapse text-sm">
+        <thead>
+          <tr>
+            <th className="sticky left-0 top-0 z-20 bg-slate-50 text-left px-3 py-3 font-semibold text-slate-500 w-56 border-b border-slate-200">Field</th>
+            {proposals.map((p) => (
+              <th key={p.id} className="sticky top-0 z-10 bg-slate-50 px-3 py-3 text-left border-b border-slate-200 min-w-[220px] align-top">
+                <InsurerHeader prop={p} onAssignLogo={onAssignLogo} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const vals = proposals.map((p) => cellText(row, p).trim());
+            const uniq = new Set(vals.filter(Boolean));
+            const differs = uniq.size > 1;
+            return (
+              <tr key={row.key} className={differs ? 'bg-amber-50/40' : ''}>
+                <th className="sticky left-0 z-10 bg-white text-left align-top px-3 py-2 font-medium text-slate-500 border-b border-slate-100">{row.label}</th>
+                {proposals.map((p) => {
+                  const m = row.money ? row.get(p) : null;
+                  return (
+                    <td key={p.id} className="px-3 py-2 align-top border-b border-slate-100">
+                      {row.money
+                        ? (m ? <span className="mono-amt tnum">{CMP.formatMoney(m)}</span> : <span className="italic text-slate-400">—</span>)
+                        : (row.get(p) ? <span className="whitespace-pre-wrap break-words text-slate-700">{row.get(p)}</span> : <span className="italic text-slate-400">—</span>)}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---------- file chip ---------- */
+function FileChip({ f, onRemove }) {
+  const statusMap = {
+    processing: { t: 'Processing…', c: 'bg-sky-100 text-sky-700' },
+    parsed: { t: 'Parsed', c: 'bg-emerald-100 text-emerald-700' },
+    review: { t: 'Needs review', c: 'bg-amber-100 text-amber-700' },
+    error: { t: 'Error', c: 'bg-red-100 text-red-700' },
+  };
+  const st = statusMap[f.status] || statusMap.processing;
+  return (
+    <div className="flex items-center gap-2 rounded-full bg-white ring-1 ring-slate-200 pl-3 pr-1.5 py-1 text-sm">
+      <span className="truncate max-w-[180px] text-slate-700" title={f.name}>{f.name}</span>
+      {f.insurer && <span className="text-slate-400">·</span>}
+      {f.insurer && <span className="text-slate-500 truncate max-w-[120px]">{f.insurer}</span>}
+      <span className={'rounded-full px-2 py-0.5 text-[11px] ' + st.c}>{st.t}</span>
+      <button className="w-5 h-5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700" onClick={() => onRemove(f.id)}>×</button>
+    </div>
+  );
+}
+
+/* ---------- premium comparison mini-chart (dependency-free) ---------- */
+function PremiumChart({ proposals }) {
+  const data = proposals
+    .map((p) => ({ name: (p.insurers[0] && p.insurers[0].name) || p.fileName, amt: CMP.premiumTotalAmount(p), disp: CMP.premiumTotalDisplay(p) }))
+    .filter((d) => d.amt != null);
+  if (data.length < 2) return null;
+  const max = Math.max(...data.map((d) => d.amt));
+  const min = Math.min(...data.map((d) => d.amt));
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4 mb-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Total premium comparison</div>
+      <div className="space-y-2">
+        {data.map((d, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="w-40 truncate text-sm text-slate-600" title={d.name}>{d.name}</div>
+            <div className="flex-1 bg-slate-100 rounded h-6 relative overflow-hidden">
+              <div className={'h-6 rounded ' + (d.amt === min ? 'bg-emerald-500' : d.amt === max ? 'bg-slate-400' : 'bg-sky-500')}
+                   style={{ width: Math.max(6, (d.amt / max) * 100) + '%' }} />
+            </div>
+            <div className="w-36 text-right mono-amt tnum text-sm text-slate-800">{d.disp}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 text-[11px] text-slate-400">Lowest total shown in green. Bars scale to the highest total. Figures are copied verbatim from each slip.</div>
+    </div>
+  );
+}
+
+/* ---------- comparative matrix view ---------- */
+function MatrixCell({ cell }) {
+  if (!cell || cell.t === 'empty') return <span className="text-slate-300">—</span>;
+  if (cell.t === 'check') {
+    return <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold" title="As proposed">✓</span>;
+  }
+  const deleted = CMP.isDeleted(cell.v);
+  return (
+    <div className="max-h-[24rem] overflow-y-auto cmp-scroll pr-1">
+      <span className={'whitespace-pre-wrap break-words ' + (deleted ? 'text-red-600 font-medium' : 'text-slate-800')}>{cell.v}</span>
+    </div>
+  );
+}
+
+// Click-to-edit matrix cell (multi-line). Blank clears the override.
+function MatrixEditableCell({ cell, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  if (editing) {
+    const rows = Math.min(10, Math.max(1, (val.match(/\n/g) || []).length + 1));
+    return (
+      <textarea autoFocus value={val} rows={rows} onChange={(e) => setVal(e.target.value)} onBlur={() => { setEditing(false); onCommit(val); }} onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); }} className="w-full text-[13px] rounded border border-[#0047AB] px-1.5 py-1 outline-none resize-y" />
+    );
+  }
+  const deleted = cell && cell.t === 'text' && CMP.isDeleted(cell.v);
+  return (
+    <button type="button" title="Click to edit" onClick={() => { setVal(cell && cell.raw != null ? String(cell.raw) : ''); setEditing(true); }} className="group text-left w-full block max-h-[24rem] overflow-y-auto cmp-scroll pr-1">
+      {(!cell || cell.t === 'empty') ? <span className="text-slate-300">—</span>
+        : cell.t === 'check' ? <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold" title="As proposed">✓</span>
+        : <span className={'whitespace-pre-wrap break-words ' + (deleted ? 'text-red-600 font-medium' : 'text-slate-800')}>{cell.v}</span>}
+      <span className="ml-1 align-top text-[10px] text-slate-300 group-hover:text-[#0047AB] no-print">✎</span>
+    </button>
+  );
+}
+
+function MatrixSpinner() {
+  return (
+    <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-90" />
+    </svg>
+  );
+}
+function MatrixArchiveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" />
+    </svg>
+  );
+}
+function MatrixView({ matrix, controls, onEdit, onSave, onArchive }) {
+  const hasBaseline = !!matrix.baseline;
+  const cols = matrix.columns;
+  const editable = typeof onEdit === 'function';
+  const [busy, setBusy] = useState(null);
+  // Run an action with a disabled + spinner state; catch failures → error toast.
+  const run = async (kind, fn) => {
+    if (busy) return;
+    setBusy(kind);
+    await new Promise((res) => setTimeout(res, 0)); // let the spinner paint before sync work
+    try { await fn(); }
+    catch (e) { CMP.toast('Sorry — that action failed: ' + (e && e.message ? e.message : e)); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div id="matrix-print" className="rounded-2xl ring-1 ring-slate-200 shadow-sm bg-white overflow-hidden">
+      <div className="bg-gradient-to-r from-[#211E24] to-[#141216] text-white px-5 py-4 flex items-start justify-between gap-4">
+        <div>
+          {matrix.eyebrow && <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#3F7FD6]">{matrix.eyebrow}</div>}
+          <div className="text-lg font-bold leading-tight">{matrix.title}</div>
+          {matrix.subtitle && <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#3F7FD6] mt-1">{matrix.subtitle}</div>}
+        </div>
+        <div className="no-print flex items-center gap-2 shrink-0">
+          {onSave && (
+            <button
+              onClick={() => run('save', async () => { const res = await onSave(); if (res && res.name) CMP.toast('Saved “' + res.name + '” to your downloads — open it later to resume.'); })}
+              disabled={!!busy}
+              title="Save this comparison as a file you can reopen later"
+              className="inline-flex items-center gap-1.5 rounded-md bg-white/15 hover:bg-white/25 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/25 font-medium">
+              {busy === 'save' && <MatrixSpinner />}{busy === 'save' ? 'Saving…' : 'Save'}
+            </button>
+          )}
+          <button
+            onClick={() => run('xlsx', () => CMP.exportMatrixXlsx(matrix))}
+            disabled={!!busy}
+            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/20">
+            {busy === 'xlsx' && <MatrixSpinner />}{busy === 'xlsx' ? 'Exporting…' : 'Export Excel'}
+          </button>
+          <button
+            onClick={() => run('pdf', () => CMP.exportMatrixPdf(matrix))}
+            disabled={!!busy}
+            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/20">
+            {busy === 'pdf' && <MatrixSpinner />}{busy === 'pdf' ? 'Preparing…' : 'Export PDF'}
+          </button>
+          {onArchive && (
+            <button
+              onClick={onArchive}
+              disabled={!!busy}
+              title="Open the Archive"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#0047AB] hover:bg-[#00337A] disabled:opacity-60 text-white text-xs px-3 py-1.5 ring-1 ring-white/10 font-medium">
+              <MatrixArchiveIcon /> Archive
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-[12px] text-slate-500">
+        <span className="inline-flex items-center gap-1.5"><span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">✓</span>As proposed</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-amber-100 ring-1 ring-amber-300" />Deviation from proposed terms</span>
+        <span className="inline-flex items-center gap-1.5"><span className="text-red-600 font-medium">DELETED</span> Not offered</span>
+        <span className="inline-flex items-center gap-1.5"><span className="text-slate-300">—</span> Not addressed</span>
+        {controls && <span className="ml-auto">{controls}</span>}
+      </div>
+      <div className="overflow-auto cmp-scroll max-h-[85vh]">
+        <table className="min-w-full border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-left px-3 py-3 font-semibold text-slate-500 border-b border-r border-slate-200 w-52 min-w-[13rem]">Terms &amp; Conditions</th>
+              {hasBaseline && (
+                <th className="sticky top-0 z-20 bg-[#E9F1FB] text-left px-3 py-3 border-b border-slate-200 min-w-[220px] align-bottom">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#0047AB]">{matrix.baseline.role || 'Proposed'}</div>
+                  <div className="font-bold text-slate-800 leading-tight">{matrix.baseline.name}</div>
+                </th>
+              )}
+              {cols.map((c) => (
+                <th key={c.id} className="sticky top-0 z-20 bg-slate-100 px-3 py-3 text-left border-b border-slate-200 min-w-[200px] align-bottom">
+                  <span className="font-semibold text-slate-700 leading-tight">{c.name}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.rows.map((row, ri) => {
+              const rowTop = row.newField ? 'border-t-2 border-slate-200' : 'border-t border-slate-100';
+              return (
+                <tr key={ri} className={'align-top hover:bg-slate-50/70 ' + (row.total ? 'font-bold bg-slate-50' : '')}>
+                  <th className={'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' + rowTop + (row.total ? ' bg-slate-50' : '')}>
+                    {row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
+                  </th>
+                  {hasBaseline && (
+                    <td className={'px-3 py-2 bg-[#E9F1FB]/60 text-slate-800 ' + rowTop}>
+                      {editable
+                        ? <MatrixEditableCell cell={{ t: row.howden ? 'text' : 'empty', v: row.howden, raw: row.howden }} onCommit={(t) => onEdit(matrix.baseline.id, row.key, t)} />
+                        : <div className="max-h-[24rem] overflow-y-auto cmp-scroll pr-1"><span className="whitespace-pre-wrap break-words">{row.howden || <span className="text-slate-300">—</span>}</span></div>}
+                    </td>
+                  )}
+                  {cols.map((c) => {
+                    const cell = row.cells[c.id];
+                    const dev = cell && cell.t === 'text' && (cell.dev || hasBaseline);
+                    return (
+                      <td key={c.id} className={'px-3 py-2 ' + rowTop + ' ' + (cell && cell.t === 'check' ? 'bg-emerald-50/40' : dev ? 'bg-amber-50 border-l-2 border-l-amber-400' : '')}>
+                        {editable ? <MatrixEditableCell cell={cell} onCommit={(t) => onEdit(c.id, row.key, t)} /> : <MatrixCell cell={cell} />}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {matrix.footnotes && matrix.footnotes.length > 0 && (
+        <div className="px-5 py-4 bg-slate-50 border-t border-slate-200">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Additional clauses, warranties &amp; subjectivities</div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {matrix.footnotes.map((f) => (
+              <div key={f.colId}>
+                <div className="text-sm font-semibold text-slate-700 mb-1">{f.name}</div>
+                <ul className="text-[12px] text-slate-600 space-y-0.5">
+                  {f.lines.map((l, i) => <li key={i} className="whitespace-pre-wrap break-words">{l}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- overall analysis (Overview view) ---------- */
+function KpiTile({ label, tone, children }) {
+  const ring = tone === 'good' ? 'ring-emerald-200 bg-emerald-50' : tone === 'warn' ? 'ring-amber-200 bg-amber-50' : 'ring-slate-200 bg-white';
+  return (
+    <div className={'rounded-xl ring-1 p-3 ' + ring}>
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-1">{children}</div>
+    </div>
+  );
+}
+
+function nameOf(p) { return (p.insurers[0] && p.insurers[0].name) || p.fileName; }
+
+function ValueRanker({ proposals }) {
+  const [weight, setWeight] = useState(0.5);
+  const ranked = CMP.valueRanking(proposals, weight);
+  const max = Math.max(...ranked.map((r) => r.score), 0.0001);
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <span className="text-xs text-slate-500 whitespace-nowrap">Prioritise price</span>
+        <input type="range" min="0" max="1" step="0.05" value={weight} onChange={(e) => setWeight(Number(e.target.value))} className="flex-1" />
+        <span className="text-xs text-slate-500 whitespace-nowrap">Prioritise coverage</span>
+      </div>
+      <div className="space-y-2">
+        {ranked.map((r, i) => (
+          <div key={r.p.id} className="flex items-center gap-3">
+            <span className="w-5 text-right text-xs text-slate-400 tnum">{i + 1}</span>
+            <span className="w-40 truncate text-sm text-slate-700" title={nameOf(r.p)}>{nameOf(r.p)}</span>
+            <div className="flex-1 bg-slate-100 rounded h-5 overflow-hidden">
+              <div className={'h-5 rounded ' + (i === 0 ? 'bg-[#0047AB]' : 'bg-[#A7C6EF]')} style={{ width: Math.max(4, (r.score / max) * 100) + '%' }} />
+            </div>
+            <span className="w-9 text-right text-xs tnum text-slate-500">{Math.round(r.score * 100)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 text-[11px] text-slate-400">Automated value score blending your price/coverage weighting — a comparison aid, not a recommendation. Always verify against the slips.</div>
+    </div>
+  );
+}
+
+function DiffAtAGlance({ proposals }) {
+  const rows = [
+    { label: 'Policy Type', get: (p) => p.policyType },
+    { label: 'Period', get: (p) => [p.periodOfInsurance.from, p.periodOfInsurance.to].filter(Boolean).join(' – ') },
+    { label: 'Sum Insured', get: (p) => CMP.formatSections(p.sumInsured) },
+    { label: 'Deductibles', get: (p) => CMP.formatSections(p.deductibles) },
+    { label: 'Total Premium', get: (p) => CMP.premiumTotalDisplay(p) },
+    { label: 'Premium Rate', get: (p) => CMP.formatSections(p.premiumRate) },
+  ];
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r, i) => {
+        const vals = proposals.map((p) => (r.get(p) || '').trim());
+        const uniq = new Set(vals.filter(Boolean));
+        const differ = uniq.size > 1;
+        const same = uniq.size === 1 ? [...uniq][0] : null;
+        return (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            <span className={'w-2 h-2 rounded-full shrink-0 ' + (differ ? 'bg-amber-500' : uniq.size === 1 ? 'bg-emerald-500' : 'bg-slate-300')} />
+            <span className="text-slate-600 w-32 shrink-0">{r.label}</span>
+            <span className="text-slate-500 truncate">{differ ? 'Differs across proposals' : same ? 'All same: ' + same : 'Not detected'}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Overview({ proposals, onView }) {
+  const A = CMP.analyze(proposals, TODAY);
+  const lowName = A.lowest ? nameOf(A.lowest.p) : null;
+  const covName = A.mostCoverage ? nameOf(A.mostCoverage.p) : null;
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <KpiTile label="Proposals compared">
+          <div className="text-2xl font-bold text-slate-800 tnum">{A.count}</div>
+          <div className="text-[11px] text-slate-400 truncate">{A.policyTypes.join(', ') || '—'}</div>
+        </KpiTile>
+        <KpiTile label="Lowest total premium" tone="good">
+          {A.lowest
+            ? (<div><div className="mono-amt tnum text-lg font-bold text-emerald-700">{A.lowest.disp}</div><div className="text-[11px] text-slate-500 truncate">{lowName}</div></div>)
+            : <span className="text-sm italic text-slate-400">Not detected</span>}
+        </KpiTile>
+        <KpiTile label="Highest total premium">
+          {A.highest
+            ? (<div><div className="mono-amt tnum text-lg font-bold text-slate-700">{A.highest.disp}</div><div className="text-[11px] text-slate-500 truncate">{nameOf(A.highest.p)}</div></div>)
+            : <span className="text-sm italic text-slate-400">Not detected</span>}
+        </KpiTile>
+        <KpiTile label="Potential saving (computed)" tone={A.spread ? 'good' : undefined}>
+          {A.spread != null
+            ? (<div><div className="mono-amt tnum text-lg font-bold text-slate-800">{CMP.formatComputed(A.spread, A.symbol)}</div><div className="text-[11px] text-slate-400">≈ {A.savingsPct.toFixed(1)}% vs highest · computed</div></div>)
+            : <span className="text-sm italic text-slate-400">Need 2+ premiums</span>}
+        </KpiTile>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Overall analysis</div>
+          <p className="text-sm text-slate-700 leading-relaxed">
+            You're comparing <strong>{A.count}</strong> proposal{A.count !== 1 ? 's' : ''}{A.policyTypes.length ? (<> for <strong>{A.policyTypes.join(', ')}</strong></>) : null}.
+            {A.lowest ? (<> The lowest total premium is <strong>{A.lowest.disp}</strong> from <strong>{lowName}</strong>{A.spread > 0 ? (<> — about <strong>{CMP.formatComputed(A.spread, A.symbol)}</strong> ({A.savingsPct.toFixed(1)}%) below the highest quote (computed)</>) : null}.</>) : null}
+            {covName ? (<> <strong>{covName}</strong> shows the broadest cover ({A.mostCoverage.clauses} clause{A.mostCoverage.clauses !== 1 ? 's' : ''} captured).</>) : null}
+            {A.lapsed.length > 0 ? (<> <strong className="text-red-600">{A.lapsed.length}</strong> quote{A.lapsed.length !== 1 ? 's have' : ' has'} already lapsed and should be refreshed.</>) : null}
+            {A.review.length > 0 ? (<> <strong className="text-amber-600">{A.review.length}</strong> proposal{A.review.length !== 1 ? 's need' : ' needs'} manual review before you rely on the figures.</>) : null}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {A.lowest && <Badge tone="price">Best price: {lowName}</Badge>}
+            {covName && <Badge tone="cover">Most coverage: {covName}</Badge>}
+            {A.lapsed.map((p, i) => <Badge key={i} tone="lapse">Lapsed: {nameOf(p)}</Badge>)}
+            {A.review.map((p, i) => <Badge key={'r' + i} tone="review">Review: {nameOf(p)}</Badge>)}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Data quality</div>
+          <div className="space-y-1.5">
+            {A.completeness.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-28 truncate text-sm text-slate-600" title={nameOf(c.p)}>{nameOf(c.p)}</span>
+                <div className="flex-1 bg-slate-100 rounded h-3 overflow-hidden">
+                  <div className={'h-3 ' + (c.pct >= 75 ? 'bg-emerald-500' : c.pct >= 45 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: c.pct + '%' }} />
+                </div>
+                <span className="w-9 text-right text-[11px] tnum text-slate-500">{c.pct}%</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-slate-400">Share of key fields detected per slip.</div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Interactive value ranking</div>
+        <ValueRanker proposals={proposals} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+        <PremiumChart proposals={proposals} />
+        <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Differences at a glance</div>
+          <DiffAtAGlance proposals={proposals} />
+          <button className="mt-3 text-xs text-sky-600 hover:underline" onClick={() => onView('table')}>Open full comparison table →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- best-fit (interactive weighted comparison) ---------- */
+const BF_firstPct = (s) => { const m = String(s || '').match(/(\d+(?:\.\d+)?)\s*%/); return m ? parseFloat(m[1]) : null; };
+const BF_firstAmt = (s) => { const m = String(s || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+const BF_clausesText = (p) => (p.clausesAndWarranties || []).map((c, i) => (/^\s*\d+[.)]/.test(String(c)) ? String(c).trim() : (i + 1) + '. ' + String(c).trim())).join('\n');
+// Effective value = the SAME thing shown in the Matrix (override-aware).
+const BF_eff = (p, key, fb) => { const o = p.overrides && p.overrides[key]; return o != null && String(o).trim() !== '' ? String(o) : fb(p); };
+const BF_clauseCount = (p) => { const t = BF_eff(p, 'clauses', (q) => BF_clausesText(q)); return t && t.trim() ? t.split('\n').filter((l) => l.trim()).length : 0; };
+const BF_CRITERIA = [
+  { key: 'premium', label: 'Total Premium', hint: 'lower is better', dir: 'lower', def: 70,
+    disp: (p) => BF_eff(p, 'premiumTotal', (q) => (q.premium && q.premium.total ? CMP.formatMoney(q.premium.total.money) : '—')),
+    num: (p) => BF_firstAmt(BF_eff(p, 'premiumTotal', (q) => (q.premium && q.premium.total ? CMP.formatMoney(q.premium.total.money) : ''))) },
+  { key: 'premiumRate', label: 'Premium Rate', hint: 'lower is better', dir: 'lower', def: 50,
+    disp: (p) => BF_eff(p, 'premiumRate', (q) => CMP.formatSections(q.premiumRate)) || '—',
+    num: (p) => BF_firstPct(BF_eff(p, 'premiumRate', (q) => CMP.formatSections(q.premiumRate))) },
+  { key: 'brokerage', label: 'Brokerage Rate', hint: 'lower is better', dir: 'lower', def: 30,
+    disp: (p) => p.brokerageRate || '—',
+    num: (p) => BF_firstPct(p.brokerageRate) },
+  { key: 'clauses', label: 'Clauses & Warranties', hint: 'broader cover is better', dir: 'higher', def: 60,
+    disp: (p) => BF_clauseCount(p) + ' captured',
+    num: (p) => BF_clauseCount(p) },
+  { key: 'sumInsured', label: 'Sum Insured', hint: 'higher is better', dir: 'higher', def: 40,
+    disp: (p) => BF_eff(p, 'sumInsured', (q) => CMP.formatSections(q.sumInsured)) || '—',
+    num: (p) => BF_firstAmt(BF_eff(p, 'sumInsured', (q) => CMP.formatSections(q.sumInsured))) },
+  { key: 'deductibles', label: 'Deductibles', hint: 'lower is better', dir: 'lower', def: 40,
+    disp: (p) => BF_eff(p, 'deductibles', (q) => CMP.formatSections(q.deductibles)) || '—',
+    num: (p) => BF_firstPct(BF_eff(p, 'deductibles', (q) => CMP.formatSections(q.deductibles))) },
+];
+const BF_PRESETS = {
+  Balanced: { premium: 70, premiumRate: 50, brokerage: 30, clauses: 60, sumInsured: 40, deductibles: 40 },
+  'Lowest cost': { premium: 100, premiumRate: 80, brokerage: 60, clauses: 20, sumInsured: 20, deductibles: 60 },
+  'Broadest cover': { premium: 30, premiumRate: 20, brokerage: 10, clauses: 100, sumInsured: 80, deductibles: 70 },
+};
+function bfScore(proposals, weights) {
+  const active = BF_CRITERIA.filter((c) => weights[c.key] > 0);
+  const per = active.map((c) => {
+    const vals = proposals.map(c.num);
+    const nums = vals.filter((v) => v != null && isFinite(v));
+    return { c, vals, min: nums.length ? Math.min(...nums) : null, max: nums.length ? Math.max(...nums) : null };
+  });
+  const totalW = active.reduce((s, c) => s + weights[c.key], 0) || 1;
+  return proposals.map((p, i) => {
+    let sc = 0;
+    per.forEach((pc) => {
+      const v = pc.vals[i];
+      let n = 0.5;
+      if (v != null && isFinite(v) && pc.min != null) {
+        n = pc.max === pc.min ? 0.5 : (v - pc.min) / (pc.max - pc.min);
+        if (pc.c.dir === 'lower') n = 1 - n;
+      }
+      sc += n * weights[pc.c.key];
+    });
+    return { p, score: (sc / totalW) * 100 };
+  }).sort((a, b) => b.score - a.score);
+}
+function BestFit({ proposals }) {
+  const [weights, setWeights] = useState(() => { const o = {}; BF_CRITERIA.forEach((c) => { o[c.key] = c.def; }); return o; });
+  const ranked = useMemo(() => bfScore(proposals, weights), [proposals, weights]);
+  const max = Math.max(...ranked.map((r) => r.score), 0.0001);
+  const best = ranked[0];
+  const nm = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#0047AB]">Best Fit for Client</div>
+            <h2 className="text-lg font-bold text-slate-800">Weigh what matters — see the best-fit insurer</h2>
+          </div>
+          <div className="flex gap-1.5">
+            {Object.keys(BF_PRESETS).map((n) => (
+              <button key={n} onClick={() => setWeights({ ...BF_PRESETS[n] })} className="text-xs rounded-md ring-1 ring-slate-200 px-2.5 py-1 hover:bg-slate-50 text-slate-600">{n}</button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {BF_CRITERIA.map((c) => (
+            <div key={c.key} className="flex items-center gap-3">
+              <div className="w-40 shrink-0">
+                <div className="text-sm text-slate-700">{c.label}</div>
+                <div className="text-[10px] text-slate-400">{c.dir === 'lower' ? '↓ ' : '↑ '}{c.hint}</div>
+              </div>
+              <input type="range" min="0" max="100" value={weights[c.key]} onChange={(e) => setWeights({ ...weights, [c.key]: Number(e.target.value) })} className="flex-1 accent-[#0047AB]" />
+              <span className="w-8 text-right text-xs tnum text-slate-500">{weights[c.key]}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-[11px] text-slate-400">Drag to set how important each factor is (0 = ignore). Automated decision aid — not a recommendation; always verify against the slips.</div>
+      </div>
+
+      {best && (
+        <div className="rounded-xl ring-1 ring-teal-200 bg-teal-50 p-4 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-wide text-teal-600 font-semibold">Best fit on your current weighting</div>
+            <div className="text-xl font-bold text-slate-800 truncate">{nm(best.p)}</div>
+          </div>
+          <div className="text-2xl font-bold text-teal-700 tnum shrink-0">{Math.round(best.score)}<span className="text-sm text-teal-500">/100</span></div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Fit ranking</div>
+        <div className="space-y-2">
+          {ranked.map((r, i) => (
+            <div key={r.p.id} className="flex items-center gap-3">
+              <span className="w-5 text-right text-xs text-slate-400 tnum">{i + 1}</span>
+              <span className="w-44 truncate text-sm text-slate-700" title={nm(r.p)}>{nm(r.p)}</span>
+              <div className="flex-1 bg-slate-100 rounded h-6 overflow-hidden">
+                <div className={'h-6 rounded ' + (i === 0 ? 'bg-teal-600' : i === 1 ? 'bg-[#0047AB]' : 'bg-[#E63946]')} style={{ width: Math.max(4, (r.score / max) * 100) + '%' }} />
+              </div>
+              <span className="w-10 text-right text-sm tnum text-slate-700">{Math.round(r.score)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl ring-1 ring-slate-200 overflow-auto cmp-scroll">
+        <table className="min-w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-slate-50">
+              <th className="text-left px-3 py-2 font-semibold text-slate-500 sticky left-0 bg-slate-50">Insurer</th>
+              {BF_CRITERIA.map((c) => <th key={c.key} className="text-left px-3 py-2 font-semibold text-slate-500 min-w-[130px]">{c.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((r, i) => (
+              <tr key={r.p.id} className={'border-t border-slate-100 ' + (i === 0 ? 'bg-teal-50/40' : '')}>
+                <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-white">{nm(r.p)}</td>
+                {BF_CRITERIA.map((c) => <td key={c.key} className="px-3 py-2 text-slate-600 whitespace-pre-wrap break-words">{c.disp(r.p)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- main app ---------- */
+/* ---- Archive page: saved comparative matrices (search / filter / sort) ---- */
+function ArchiveView({ list, onView, onRestore, onDelete, onReload }) {
+  const PAGE = 8;
+  const fmtDate = (iso) => { try { return new Date(iso).toLocaleString(); } catch (e) { return iso || ''; } };
+  const fileRef = useRef(null);
+  const handleBackup = () => {
+    const n = CMP.archiveExport();
+    CMP.toast(n ? ('Backed up ' + n + ' comparison' + (n === 1 ? '' : 's') + ' to a file — keep it to restore later.') : 'Nothing to back up yet.');
+  };
+  const handleRestoreFile = async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!f) return;
+    try {
+      const text = await f.text();
+      const res = CMP.archiveImport(text, 'merge');
+      if (onReload) onReload();
+      CMP.toast(res.added ? ('Restored ' + res.added + ' comparison' + (res.added === 1 ? '' : 's') + ' from your file.') : 'Those comparisons are already in your archive.');
+    } catch (e) {
+      CMP.toast(e.message || 'Could not read that backup file.');
+    }
+  };
+  const [q, setQ] = useState('');
+  const [policy, setPolicy] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [page, setPage] = useState(1);
+  const [confirm, setConfirm] = useState(null); // record pending delete
+
+  const policyOpts = useMemo(() => CMP.archivePolicyTypes(list), [list]);
+
+  const filtered = useMemo(() => {
+    let rows = (list || []).slice();
+    if (q.trim()) {
+      const k = q.toLowerCase();
+      rows = rows.filter((r) => (r.client_name || '').toLowerCase().includes(k) || (r.title || '').toLowerCase().includes(k));
+    }
+    if (policy !== 'all') rows = rows.filter((r) => r.policy_type === policy);
+    if (from) { const t = new Date(from + 'T00:00:00').getTime(); rows = rows.filter((r) => new Date(r.saved_at).getTime() >= t); }
+    if (to) { const t = new Date(to + 'T23:59:59').getTime(); rows = rows.filter((r) => new Date(r.saved_at).getTime() <= t); }
+    const time = (r) => new Date(r.saved_at).getTime() || 0;
+    if (sort === 'newest') rows.sort((a, b) => time(b) - time(a));
+    else if (sort === 'oldest') rows.sort((a, b) => time(a) - time(b));
+    else if (sort === 'client') rows.sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''));
+    return rows;
+  }, [list, q, policy, from, to, sort]);
+
+  useEffect(() => { setPage(1); }, [q, policy, from, to, sort]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const clamped = Math.min(page, pages);
+  const pageRows = filtered.slice((clamped - 1) * PAGE, clamped * PAGE);
+
+  const doExport = (rec, kind) => {
+    const m = CMP.buildMatrixFromProposals(rec.proposals || [], rec.baselineId || 'none');
+    if (kind === 'xlsx') CMP.exportMatrixXlsx(m); else CMP.exportMatrixPdf(m);
+  };
+
+  const btn = 'text-[12px] rounded-md px-2.5 py-1 ring-1 transition-colors';
+
+  return (
+    <div className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
+      {/* Title band */}
+      <div className="bg-gradient-to-r from-[#211E24] to-[#141216] text-white px-5 py-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#3F7FD6]">Archive</div>
+        <div className="text-lg font-bold leading-tight mt-0.5">Saved comparative matrices</div>
+        <div className="text-sm text-slate-300">{list.length} saved{list.length === 1 ? ' comparison' : ' comparisons'} on this device</div>
+      </div>
+
+      {/* Backup / restore + storage status */}
+      <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 bg-white border-b border-slate-200 text-[12px]">
+        <button onClick={handleBackup} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>⬇ Back up to file</button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>⬆ Restore from file</button>
+        <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={handleRestoreFile} />
+        {CMP.storage.available
+          ? <span className="ml-auto inline-flex items-center gap-1.5 text-emerald-600"><span>●</span> Saved in this browser — stays until you delete it</span>
+          : <span className="ml-auto inline-flex items-center gap-1.5 text-amber-600"><span>●</span> This preview can’t save to your browser — use Back up / Restore, or open the file in a browser tab</span>}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-200 text-[12px] text-slate-600">
+        <input
+          value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search client or title…"
+          className="rounded-md ring-1 ring-slate-200 px-2.5 py-1.5 min-w-[200px]" />
+        <label className="inline-flex items-center gap-1.5">Policy
+          <select value={policy} onChange={(e) => setPolicy(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5">
+            <option value="all">All</option>
+            {policyOpts.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <label className="inline-flex items-center gap-1.5">From
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5" />
+        </label>
+        <label className="inline-flex items-center gap-1.5">To
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5" />
+        </label>
+        <label className="inline-flex items-center gap-1.5 ml-auto">Sort
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="client">Client A–Z</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Empty states */}
+      {list.length === 0 ? (
+        <div className="text-center text-slate-400 py-16 px-6">
+          <div className="text-4xl mb-3">🗄️</div>
+          <p className="text-sm">No archived matrices yet. Save a comparative matrix to see it here.</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center text-slate-400 py-16 px-6">
+          <p className="text-sm">No matrices match your filters.</p>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-auto">
+            <table className="min-w-full text-[13px]">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50">
+                  <th className="px-4 py-2.5 font-semibold">Title</th>
+                  <th className="px-4 py-2.5 font-semibold">Client</th>
+                  <th className="px-4 py-2.5 font-semibold">Policy type</th>
+                  <th className="px-4 py-2.5 font-semibold">Saved</th>
+                  <th className="px-4 py-2.5 font-semibold">By</th>
+                  <th className="px-4 py-2.5 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/60 align-top">
+                    <td className="px-4 py-2.5 font-medium text-slate-800 max-w-[260px]">{r.title}</td>
+                    <td className="px-4 py-2.5 text-slate-600 max-w-[200px]">{r.client_name}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{r.policy_type || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{fmtDate(r.saved_at)}</td>
+                    <td className="px-4 py-2.5 text-slate-500">{r.saved_by}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1.5 justify-end">
+                        <button onClick={() => onView(r)} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>View</button>
+                        <button onClick={() => onRestore(r)} className={btn + ' ring-[#BCD6F2] text-[#00337A] hover:bg-[#E9F1FB]'}>Restore</button>
+                        <button onClick={() => doExport(r, 'xlsx')} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>Excel</button>
+                        <button onClick={() => doExport(r, 'pdf')} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>PDF</button>
+                        <button onClick={() => setConfirm(r)} className={btn + ' ring-red-200 text-red-600 hover:bg-red-50'}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {pages > 1 && (
+            <div className="flex items-center justify-between px-5 py-3 text-[12px] text-slate-500 border-t border-slate-200">
+              <span>Showing {(clamped - 1) * PAGE + 1}–{Math.min(clamped * PAGE, filtered.length)} of {filtered.length}</span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={clamped <= 1}
+                  className="rounded-md ring-1 ring-slate-200 px-2.5 py-1 disabled:opacity-40 hover:bg-slate-50">Prev</button>
+                <span>Page {clamped} / {pages}</span>
+                <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={clamped >= pages}
+                  className="rounded-md ring-1 ring-slate-200 px-2.5 py-1 disabled:opacity-40 hover:bg-slate-50">Next</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Delete confirmation */}
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setConfirm(null)}>
+          <div className="bg-white rounded-xl shadow-xl ring-1 ring-slate-200 max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="text-base font-semibold text-slate-800 mb-1">Delete this archived matrix?</div>
+            <p className="text-sm text-slate-500 mb-4">“{confirm.title}” will be permanently removed from the Archive on this device. This can’t be undone.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirm(null)} className="text-sm rounded-md ring-1 ring-slate-200 px-3 py-1.5 hover:bg-slate-50 text-slate-700">Cancel</button>
+              <button onClick={() => { onDelete(confirm); setConfirm(null); }} className="text-sm rounded-md bg-red-600 hover:bg-red-700 text-white px-3 py-1.5">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [files, setFiles] = useState([]);        // {id,name,status,insurer,error}
+  const [proposals, setProposals] = useState([]); // extracted proposal objects (id === file id)
+  const [view, setView] = useState('overview');
+  const [baselineId, setBaselineId] = useState('none');
+  const [sortKey, setSortKey] = useState('none');
+  const [policyFilter, setPolicyFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [onlyDiff, setOnlyDiff] = useState(false);
+  const [premiumMax, setPremiumMax] = useState(null); // slider upper bound
+  const [clauseKeyword, setClauseKeyword] = useState('');
+  const [archiveList, setArchiveList] = useState([]);   // saved matrices (localStorage)
+  const [archiveItem, setArchiveItem] = useState(null); // record being viewed read-only
+  const [justSaved, setJustSaved] = useState(null);     // last saved record → confirmation banner
+  const dropRef = useRef();
+
+  const addFiles = useCallback(async (fileList) => {
+    const arr = [...fileList];
+    for (const file of arr) {
+      const id = 'f_' + Math.random().toString(36).slice(2, 9);
+      setFiles((prev) => [...prev, { id, name: file.name, status: 'processing', insurer: '' }]);
+      try {
+        const parsed = await CMP.parseFile(file);
+        let prop;
+        if (CMP.AI_ENDPOINT) {
+          try { prop = await CMP.extractWithAI(parsed, file.name); }
+          catch (e) { prop = CMP.extract(parsed, file.name); }
+        } else {
+          prop = CMP.extract(parsed, file.name);
+        }
+        prop.id = id;
+        const insurerName = (prop.insurers[0] && prop.insurers[0].name) || '';
+        const status = (prop.extractionConfidence === 'low' || prop.flaggedFields.length) ? 'review' : 'parsed';
+        setProposals((prev) => [...prev, prop]);
+        setFiles((prev) => prev.map((f) => f.id === id ? { ...f, status, insurer: insurerName } : f));
+      } catch (err) {
+        setFiles((prev) => prev.map((f) => f.id === id ? { ...f, status: 'error', error: String(err.message || err) } : f));
+      }
+    }
+  }, []);
+
+  const removeFile = useCallback((id) => {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setProposals((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const assignLogo = useCallback((propId, dataUrl) => {
+    setProposals((prev) => prev.map((p) => {
+      if (p.id !== propId) return p;
+      const insurers = p.insurers.length ? p.insurers.slice() : [{ name: p.fileName, percentageShare: '', logoUrl: '' }];
+      insurers[0] = { ...insurers[0], logoUrl: dataUrl };
+      return { ...p, insurers };
+    }));
+  }, []);
+
+  // Apply a manual edit (typed figure) to one proposal; Matrix/Overview recompute.
+  const editProposal = useCallback((id, updater) => {
+    setProposals((prev) => prev.map((p) => (p.id === id ? updater(p) : p)));
+  }, []);
+
+  // Edit any Matrix cell → update the proposal's field (direct) or a display override.
+  const editMatrixCell = useCallback((id, key, text) => {
+    if (!key) return;
+    // Auto-format money cells: single-amount cells (Total Premium, Premium
+    // Charges) get a full ₱ + comma + cents; mixed cells (Sum Insured,
+    // Deductibles) only reformat the amounts inside their text.
+    const wholeMoney = key === 'premiumTotal' || key.indexOf('premium:') === 0;
+    const inTextMoney = key === 'sumInsured' || key === 'deductibles';
+    const val = wholeMoney ? CMP.formatMoneyInput(text) : inTextMoney ? CMP.formatMoneyInText(text) : text;
+    editProposal(id, (p) => {
+      if (DIRECT_FIELDS.has(key)) return { ...p, [key]: val };
+      const overrides = { ...(p.overrides || {}) };
+      if (val && val.trim()) overrides[key] = val; else delete overrides[key];
+      return { ...p, overrides };
+    });
+  }, [editProposal]);
+
+  // ---- Save / open the whole comparison (matrix + all manual edits) ----
+  const restoreSnapshot = useCallback((d) => {
+    if (!d || !Array.isArray(d.proposals)) { alert('That file is not a saved CRS comparison.'); return false; }
+    setProposals(d.proposals);
+    setBaselineId(d.baselineId || 'none');
+    setFiles(d.proposals.map((p) => ({ id: p.id, name: p.fileName || 'Restored proposal', status: (p.extractionConfidence === 'low' || (p.flaggedFields && p.flaggedFields.length)) ? 'review' : 'parsed', insurer: (p.insurers[0] && p.insurers[0].name) || '' })));
+    return true;
+  }, []);
+
+  // "Save" archives the current comparison to the browser (localStorage) and
+  // shows a confirmation banner. Returns the created record; throws if there's
+  // nothing to save (MatrixView's run() catches and shows an error toast).
+  const saveComparison = useCallback(() => {
+    const name = CMP.comparisonExport(proposals, baselineId); // download the file — durable & portable
+    let rec = null;
+    // Also keep an in-browser Archive entry (persists in a real browser tab; harmless if storage is blocked).
+    try { rec = CMP.archiveSave(proposals, baselineId); setArchiveList(CMP.archiveLoad()); } catch (e) {}
+    setJustSaved({ name: name, title: (rec && rec.title) || name, archived: !!(rec && CMP.storage.available) });
+    return { name: name, rec: rec };
+  }, [proposals, baselineId]);
+
+  const restoreFromArchive = useCallback((rec) => {
+    restoreSnapshot({ proposals: rec.proposals, baselineId: rec.baselineId });
+    setView('matrix');
+    setJustSaved(null);
+    CMP.toast('Restored “' + (rec.title || 'comparison') + '” — you can edit and re-save.');
+  }, [restoreSnapshot]);
+
+  const deleteArchive = useCallback((rec) => {
+    setArchiveList(CMP.archiveDelete(rec.id));
+    setArchiveItem((cur) => (cur && cur.id === rec.id ? null : cur));
+  }, []);
+
+  const openComparison = useCallback((file) => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const ok = restoreSnapshot(JSON.parse(rd.result));
+        if (ok) { setRestorable(null); setView('overview'); CMP.toast('Opened your comparison — pick up where you left off.'); }
+      } catch (e) { alert('Could not read that file — is it a saved comparison (.json)?'); }
+    };
+    rd.readAsText(file);
+  }, [restoreSnapshot]);
+
+  useEffect(() => {
+    try { if (proposals.length) CMP.storage.set('crs-comparison', JSON.stringify({ version: 1, savedAt: new Date().toISOString(), baselineId, proposals })); } catch (e) {}
+  }, [proposals, baselineId]);
+
+  const [restorable, setRestorable] = useState(null);
+  useEffect(() => {
+    try { const raw = CMP.storage.get('crs-comparison'); if (raw) { const d = JSON.parse(raw); if (d && Array.isArray(d.proposals) && d.proposals.length) setRestorable(d); } } catch (e) {}
+  }, []);
+
+  // Load the saved-matrix archive once on mount.
+  useEffect(() => { setArchiveList(CMP.archiveLoad()); }, []);
+
+  const onDrop = (e) => { e.preventDefault(); dropRef.current && dropRef.current.classList.remove('ring-sky-400'); if (e.dataTransfer.files) addFiles(e.dataTransfer.files); };
+
+  /* ---- derived: policy types, premium bounds ---- */
+  const policyTypes = useMemo(() => [...new Set(proposals.map((p) => p.policyType).filter(Boolean))], [proposals]);
+  const premiumBounds = useMemo(() => {
+    const amts = proposals.map((p) => CMP.premiumTotalAmount(p)).filter((n) => n != null);
+    if (!amts.length) return null;
+    return { min: Math.min(...amts), max: Math.max(...amts) };
+  }, [proposals]);
+
+  /* ---- filtering + sorting ---- */
+  const shown = useMemo(() => {
+    let list = proposals.slice();
+    if (policyFilter !== 'all') list = list.filter((p) => p.policyType === policyFilter);
+    if (clauseKeyword.trim()) {
+      const k = clauseKeyword.toLowerCase();
+      list = list.filter((p) => p.clausesAndWarranties.join(' ').toLowerCase().includes(k) || (p.cover || '').toLowerCase().includes(k));
+    }
+    if (search.trim()) {
+      const k = search.toLowerCase();
+      list = list.filter((p) => (p.rawText || '').toLowerCase().includes(k) ||
+        JSON.stringify(p).toLowerCase().includes(k));
+    }
+    if (premiumMax != null) {
+      list = list.filter((p) => { const a = CMP.premiumTotalAmount(p); return a == null ? true : a <= premiumMax; });
+    }
+    const amt = (p) => { const a = CMP.premiumTotalAmount(p); return a == null ? Infinity : a; };
+    const si = (p) => { const a = CMP.primaryAmount(p.sumInsured); return a == null ? -Infinity : a; };
+    if (sortKey === 'premiumAsc') list.sort((a, b) => amt(a) - amt(b));
+    else if (sortKey === 'premiumDesc') list.sort((a, b) => amt(b) - amt(a));
+    else if (sortKey === 'sumDesc') list.sort((a, b) => si(b) - si(a));
+    else if (sortKey === 'name') list.sort((a, b) => ((a.insurers[0]||{}).name || a.fileName).localeCompare((b.insurers[0]||{}).name || b.fileName));
+    return list;
+  }, [proposals, policyFilter, clauseKeyword, search, premiumMax, sortKey]);
+
+  /* ---- auto badges (computed over the currently shown set) ---- */
+  const badgeMap = useMemo(() => {
+    const map = {};
+    const withPrem = shown.map((p) => ({ p, a: CMP.premiumTotalAmount(p) })).filter((x) => x.a != null);
+    if (withPrem.length > 1) {
+      const cheapest = withPrem.reduce((a, b) => (a.a <= b.a ? a : b));
+      map[cheapest.p.id] = { ...(map[cheapest.p.id] || {}), bestPrice: true };
+    }
+    if (shown.length > 1) {
+      const broadest = shown.reduce((a, b) => {
+        const av = a.clausesAndWarranties.length + (a.cover ? a.cover.length / 200 : 0);
+        const bv = b.clausesAndWarranties.length + (b.cover ? b.cover.length / 200 : 0);
+        return av >= bv ? a : b;
+      });
+      map[broadest.id] = { ...(map[broadest.id] || {}), mostCoverage: true };
+    }
+    return map;
+  }, [shown]);
+
+  const errorFiles = files.filter((f) => f.status === 'error');
+  const hasData = proposals.length > 0;
+  const isArchive = view === 'archive' || view === 'archiveItem';
+  const baselineSelect = (
+    <label className="inline-flex items-center gap-1.5 text-slate-500">
+      Benchmark against:
+      <select value={baselineId} onChange={(e) => setBaselineId(e.target.value)} className="text-[12px] rounded-md ring-1 ring-slate-200 px-2 py-1">
+        <option value="none">No baseline (show all values)</option>
+        {shown.map((p) => <option key={p.id} value={p.id}>{(p.insurers[0] && p.insurers[0].name) || p.fileName}</option>)}
+      </select>
+    </label>
+  );
+
+  return (
+    <div className="max-w-[95rem] mx-auto px-4 py-6">
+      {/* header */}
+      <header className="flex items-center justify-between mb-5 gap-4">
+        <div className="flex items-center gap-3">
+          <img src={HOWDEN_LOGO} alt="Howden" className="h-6 w-auto shrink-0" />
+          <div className="border-l border-slate-200 pl-3">
+            <div className="text-2xl font-bold uppercase tracking-wide text-[#0047AB]">HowdenPH-Apps</div>
+            <h1 className="text-xl font-bold text-slate-800">CRS Comparative Analysis</h1>
+            <p className="text-sm text-slate-500">Upload quotation slips from multiple insurers — compare premiums, cover and terms side by side.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {hasData && !isArchive && (
+            <div className="inline-flex rounded-lg ring-1 ring-slate-200 bg-white overflow-hidden text-sm">
+              <button className={'px-3 py-1.5 ' + (view === 'overview' ? 'bg-slate-800 text-white' : 'text-slate-600')} onClick={() => setView('overview')}>Overview</button>
+              <button className={'px-3 py-1.5 ' + (view === 'bestfit' ? 'bg-slate-800 text-white' : 'text-slate-600')} onClick={() => setView('bestfit')}>Best Fit</button>
+              <button className={'px-3 py-1.5 ' + (view === 'matrix' ? 'bg-slate-800 text-white' : 'text-slate-600')} onClick={() => setView('matrix')}>Matrix</button>
+            </div>
+          )}
+          {isArchive && (
+            <button
+              onClick={() => setView(hasData ? 'matrix' : 'overview')}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ring-1 bg-white text-slate-600 ring-slate-200 hover:bg-slate-50">
+              ← Back
+            </button>
+          )}
+        </div>
+      </header>
+
+      {isArchive ? (
+        view === 'archiveItem' && archiveItem ? (
+          <>
+            <div className="mb-3 flex items-center gap-3">
+              <button onClick={() => setView('archive')} className="text-sm text-[#00337A] hover:underline">← Back to Archive</button>
+              <span className="text-sm text-slate-500">Viewing a saved matrix (read-only)</span>
+            </div>
+            <MatrixView matrix={CMP.buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none')} />
+          </>
+        ) : (
+          <ArchiveView
+            list={archiveList}
+            onView={(rec) => { setArchiveItem(rec); setView('archiveItem'); }}
+            onRestore={restoreFromArchive}
+            onDelete={deleteArchive}
+            onReload={() => setArchiveList(CMP.archiveLoad())}
+          />
+        )
+      ) : (
+        <>
+
+      {/* upload zone */}
+      <div
+        ref={dropRef}
+        onDragOver={(e) => { e.preventDefault(); dropRef.current.classList.add('ring-sky-400'); }}
+        onDragLeave={() => dropRef.current.classList.remove('ring-sky-400')}
+        onDrop={onDrop}
+        className="rounded-xl border-2 border-dashed border-slate-300 ring-0 bg-white/60 p-6 text-center transition mb-4"
+      >
+        <p className="text-slate-600 text-sm">Drag & drop proposal files here, or</p>
+        <label className="inline-block mt-2 cursor-pointer rounded-lg bg-sky-600 text-white px-4 py-2 text-sm font-medium hover:bg-sky-700">
+          Choose files
+          <input type="file" multiple accept=".pdf,.xlsx,.xls,.docx" className="hidden"
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        </label>
+        <label className="inline-block mt-2 ml-2 cursor-pointer rounded-lg bg-white text-slate-700 px-4 py-2 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50">
+          Open saved comparison
+          <input type="file" accept="application/json,.json" className="hidden"
+            onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
+        </label>
+        <p className="mt-2 text-[11px] text-slate-400">Upload PDF, Excel (.xlsx/.xls) or Word (.docx) slips — or reopen a comparison you saved earlier (.json). Everything stays in your browser; nothing is uploaded to a server.</p>
+      </div>
+
+      {/* restore saved comparison */}
+      {restorable && !hasData && files.length === 0 && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-[#0047AB]/5 ring-1 ring-[#0047AB]/25 px-3 py-2 text-sm text-slate-700">
+          <span>You have a saved comparison — <strong>{restorable.proposals.length}</strong> proposal{restorable.proposals.length !== 1 ? 's' : ''}{restorable.savedAt ? ', saved ' + new Date(restorable.savedAt).toLocaleString() : ''}.</span>
+          <span className="flex gap-3 shrink-0">
+            <button className="text-[#0047AB] font-medium hover:underline" onClick={() => { restoreSnapshot(restorable); setRestorable(null); }}>Restore</button>
+            <button className="text-slate-400 hover:underline" onClick={() => setRestorable(null)}>Dismiss</button>
+          </span>
+        </div>
+      )}
+
+      {/* file chips */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {files.map((f) => <FileChip key={f.id} f={f} onRemove={removeFile} />)}
+        </div>
+      )}
+
+      {/* per-file errors (do not block the rest) */}
+      {errorFiles.length > 0 && (
+        <div className="mb-4 rounded-lg bg-red-50 ring-1 ring-red-200 p-3">
+          <div className="text-sm font-medium text-red-800 mb-1">Some files couldn't be read</div>
+          <ul className="text-sm text-red-700 list-disc list-inside">
+            {errorFiles.map((f) => <li key={f.id}>{f.name} — {f.error || 'could not be parsed (it may be corrupted, password-protected, or an unsupported format).'}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* saved-to-archive confirmation */}
+      {justSaved && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-[#E9F1FB] ring-1 ring-[#BCD6F2] px-3 py-2 text-sm text-[#0A2E63]">
+          <span>Saved ✓ — downloaded <strong>{justSaved.name}</strong>. Next time, use <strong>Open</strong> on the start screen to pick up where you left off.{justSaved.archived && <span className="text-[#0A2E63]/70"> Also kept in this browser’s Archive.</span>}</span>
+          <span className="flex gap-3 shrink-0">
+            {justSaved.archived && <button className="text-[#00337A] font-medium hover:underline" onClick={() => setView('archive')}>View in Archive</button>}
+            <button className="text-slate-400 hover:underline" onClick={() => setJustSaved(null)}>Dismiss</button>
+          </span>
+        </div>
+      )}
+
+      {/* empty state */}
+      {!hasData && files.length === 0 && (
+        <div className="text-center text-slate-400 py-16">
+          <div className="text-5xl mb-3">📄⚖️📄</div>
+          <p className="text-sm">No proposals yet. Upload two or more quotation slips to start comparing.</p>
+        </div>
+      )}
+
+      {/* controls + results */}
+      {hasData && (
+        <>
+          <div className="bg-white rounded-xl ring-1 ring-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Sort</span>
+              <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} className="text-sm rounded-md ring-1 ring-slate-200 px-2 py-1">
+                <option value="none">—</option>
+                <option value="premiumAsc">Total premium (low → high)</option>
+                <option value="premiumDesc">Total premium (high → low)</option>
+                <option value="sumDesc">Sum insured (high → low)</option>
+                <option value="name">Insurer name (A → Z)</option>
+              </select>
+            </div>
+
+            {policyTypes.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Policy type</span>
+                <select value={policyFilter} onChange={(e) => setPolicyFilter(e.target.value)} className="text-sm rounded-md ring-1 ring-slate-200 px-2 py-1">
+                  <option value="all">All</option>
+                  {policyTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
+
+            {premiumBounds && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Max premium</span>
+                <input type="range" min={premiumBounds.min} max={premiumBounds.max}
+                  value={premiumMax == null ? premiumBounds.max : premiumMax}
+                  onChange={(e) => setPremiumMax(Number(e.target.value))}
+                  className="w-40" />
+                <span className="text-xs mono-amt tnum text-slate-600">≤ {(premiumMax == null ? premiumBounds.max : premiumMax).toLocaleString()}</span>
+                {premiumMax != null && <button className="text-[11px] text-sky-600 hover:underline" onClick={() => setPremiumMax(null)}>reset</button>}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Clause/add-on</span>
+              <input value={clauseKeyword} onChange={(e) => setClauseKeyword(e.target.value)} placeholder="e.g. acts of nature"
+                className="text-sm rounded-md ring-1 ring-slate-200 px-2 py-1 w-40" />
+            </div>
+
+            <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+              <span className="text-xs text-slate-500">Search</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="keyword across all slips…"
+                className="text-sm rounded-md ring-1 ring-slate-200 px-2 py-1 flex-1" />
+            </div>
+
+            {view === 'table' && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                <input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />
+                Show only differences
+              </label>
+            )}
+          </div>
+
+          {shown.length === 0 ? (
+            <div className="text-center text-slate-400 py-12 text-sm">No proposals match the current filters.</div>
+          ) : view === 'overview' ? (
+            <Overview proposals={shown} onView={setView} />
+          ) : view === 'bestfit' ? (
+            <BestFit proposals={shown} />
+          ) : (
+            <MatrixView matrix={CMP.buildMatrixFromProposals(shown, baselineId)} controls={baselineSelect} onEdit={editMatrixCell} onSave={saveComparison} onArchive={() => setView('archive')} />
+          )}
+        </>
+      )}
+
+        </>
+      )}
+
+      {/* footer disclaimer */}
+      <footer className="mt-8 border-t border-slate-200 pt-4 text-[12px] text-slate-500">
+        Auto-extracted for comparison purposes. Figures are copied verbatim from each slip and may be incomplete or mis-read —
+        <strong> always verify figures against the original quotation slip before making a decision.</strong>
+        <span className="block mt-1 text-slate-400">Heuristic extraction is on by default; fields recovered from loose text are marked “Needs review”. See the AI-extraction hook in the source to wire in an AI parser.</span>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

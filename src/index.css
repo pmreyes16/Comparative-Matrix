@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* GT Ultra Median (licensed, Grilli Type) — files live in
+   src/assets/GT_Ultra/. The family only ships Thin/Light/Regular/Bold/
+   Black/Ultra (no Medium or SemiBold), so Tailwind's font-medium (500) and
+   font-semibold (600) are weight-aliased onto the nearest real file: 500
+   renders as Regular, 600 renders as Bold. Only Regular/Bold/Regular-Italic
+   are loaded, since those are the only weights this app's UI actually uses. */
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-Regular.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-RegularItalic.otf') format('opentype');
+  font-weight: 400 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-Bold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'GT Ultra Median';
+  src: url('./assets/GT_Ultra/GTUltraMedian-BoldItalic.otf') format('opentype');
+  font-weight: 600 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-800;
+  }
+
+  /* Consistent keyboard-focus ring app-wide, in the existing brand blue —
+     :focus-visible (not :focus) so mouse clicks stay clean and only
+     keyboard/programmatic focus shows the ring, matching modern browser UX. */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid #0047ab;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/* tabular numerals so trailing .00 always lines up and never visually drops */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.mono-amt {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+.cmp-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.cmp-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+/* Print / Export PDF: show only the matrix, let it flow across pages */
+#matrix-print {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #matrix-print,
+  #matrix-print * {
+    visibility: visible !important;
+  }
+  #matrix-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+  }
+  #matrix-print .cmp-scroll {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #matrix-print [class*='sticky'] {
+    position: static !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    size: A3 landscape;
+    margin: 10mm;
+  }
+}
