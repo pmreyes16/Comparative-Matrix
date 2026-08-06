@@ -131,7 +131,7 @@ function MatrixArchiveIcon() {
  * column + header, section grouping and a per-insurer footnotes area. Pass
  * `onEdit` to make every cell click-to-edit; omit it for a read-only render.
  */
-export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow }) {
+export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onRemoveEmptyRows, emptyRowCount }) {
   const hasBaseline = !!matrix.baseline;
   const cols = matrix.columns;
   const editable = typeof onEdit === 'function';
@@ -309,21 +309,41 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                 </tr>
               );
             })}
+            {editable && onAddRow && (
+              <tr className="no-print border-t-2 border-dashed border-slate-200 hover:bg-slate-50/70">
+                <th className="sticky left-0 z-10 bg-white text-left px-3 py-2 border-r border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onAddRow}
+                      className="inline-flex items-center gap-1.5 text-slate-500 hover:text-cobalt-600 text-xs font-medium transition-colors"
+                    >
+                      <span className="text-sm leading-none">+</span> Add a row
+                    </button>
+                    {onRemoveEmptyRows && emptyRowCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={onRemoveEmptyRows}
+                        title={'Remove ' + emptyRowCount + ' empty row' + (emptyRowCount > 1 ? 's' : '') + ' (no label, no values)'}
+                        className="inline-flex items-center shrink-0 text-slate-300 hover:text-poppy-600 transition-colors"
+                      >
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7m2 0v12.5A1.5 1.5 0 0 1 15.5 21h-7A1.5 1.5 0 0 1 7 19.5V7" />
+                          <path d="M10 11v6M14 11v6" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </th>
+                {hasBaseline && <td className="px-3 py-2 bg-cobalt-50/30" />}
+                {cols.map((c) => (
+                  <td key={c.id} className="px-3 py-2" />
+                ))}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
-
-      {editable && onAddRow && (
-        <div className="no-print px-5 py-3 bg-slate-50 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={onAddRow}
-            className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 hover:border-cobalt-400 hover:text-cobalt-600 text-slate-500 text-xs font-medium px-3 py-1.5 transition-colors"
-          >
-            <span className="text-sm leading-none">+</span> Add a row
-          </button>
-        </div>
-      )}
 
       {matrix.footnotes && matrix.footnotes.length > 0 && (
         <div className="px-5 py-4 bg-slate-50 border-t border-slate-200">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import howdenLogo from '../assets/howden-logo.gif';
 
 function Icon({ children }) {
@@ -62,7 +62,7 @@ const NAV_ITEMS = [
   { key: 'archive', label: 'Archive', requiresData: false, Icon: IconArchive },
 ];
 
-function NavButton({ item, active, disabled, onClick, compact }) {
+function NavButton({ item, active, disabled, onClick, compact, expanded }) {
   const { Icon: ItemIcon, label } = item;
   return (
     <button
@@ -82,7 +82,7 @@ function NavButton({ item, active, disabled, onClick, compact }) {
       }
     >
       <ItemIcon />
-      {!compact && <span className="truncate hidden lg:group-hover/rail:inline">{label}</span>}
+      {!compact && expanded && <span className="truncate">{label}</span>}
       {compact && <span className="truncate text-[13px]">{label}</span>}
     </button>
   );
@@ -94,20 +94,36 @@ function NavButton({ item, active, disabled, onClick, compact }) {
  */
 export default function Sidebar({ view, setView, hasData, isArchive }) {
   const isActive = (key) => (key === 'archive' ? isArchive : view === key);
+  // Expansion is tracked in JS (not pure CSS :hover) so a nav click can force
+  // an immediate collapse — otherwise the expanded rail keeps overlaying page
+  // content (e.g. the Matrix's "Add a row" button sits right under it) for as
+  // long as the pointer happens to still be inside its wider hover box.
+  const [open, setOpen] = useState(false);
+  const go = (key) => { setView(key); setOpen(false); };
 
   return (
     <>
       {/* Desktop rail — collapses to an icon-only strip and expands on hover so it doesn't permanently take up screen width */}
-      <aside className="group/rail hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-16 lg:hover:w-64 bg-cobalt-900 px-3 py-5 z-30 overflow-hidden transition-[width] duration-150 ease-in-out lg:hover:shadow-2xl">
+      <aside
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        className={
+          'hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 bg-cobalt-900 px-3 py-5 z-30 overflow-hidden transition-[width] duration-150 ease-in-out ' +
+          (open ? 'lg:w-64 lg:shadow-2xl' : 'lg:w-16')
+        }
+      >
         <div className="flex items-center gap-2.5 px-1.5 mb-6 h-8">
-          <div className="hidden lg:group-hover/rail:flex items-center gap-2.5 min-w-0">
-            <img src={howdenLogo} alt="Howden" className="h-8 w-auto shrink-0" />
-            <div className="min-w-0 border-l border-white/15 pl-2.5 whitespace-nowrap">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-teal-400 leading-tight">HowdenPH-Apps</div>
-              <div className="text-[11px] text-cobalt-200/80 leading-snug mt-0.5">CRS Comparative Analysis</div>
+          {open ? (
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img src={howdenLogo} alt="Howden" className="h-8 w-auto shrink-0" />
+              <div className="min-w-0 border-l border-white/15 pl-2.5 whitespace-nowrap">
+                <div className="text-[12px] font-bold uppercase tracking-wide text-teal-400 leading-tight">HowdenPH-Apps</div>
+                <div className="text-[11px] text-cobalt-200/80 leading-snug mt-0.5">CRS Comparative Analysis</div>
+              </div>
             </div>
-          </div>
-          <div className="flex lg:group-hover/rail:hidden items-center justify-center w-8 h-8 rounded-md bg-white/10 text-teal-400 font-bold text-sm shrink-0" aria-hidden="true">H</div>
+          ) : (
+            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/10 text-teal-400 font-bold text-sm shrink-0" aria-hidden="true">H</div>
+          )}
         </div>
         <nav className="flex-1 space-y-1">
           {NAV_ITEMS.map((item) => (
@@ -116,13 +132,16 @@ export default function Sidebar({ view, setView, hasData, isArchive }) {
               item={item}
               active={isActive(item.key)}
               disabled={item.requiresData && !hasData}
-              onClick={() => setView(item.key)}
+              onClick={() => go(item.key)}
+              expanded={open}
             />
           ))}
         </nav>
-        <div className="hidden lg:group-hover/rail:block text-[11px] text-cobalt-200/50 px-1.5 pt-3 border-t border-white/10 whitespace-nowrap">
-          Auto-extracted for comparison — always verify against the original slip.
-        </div>
+        {open && (
+          <div className="text-[11px] text-cobalt-200/50 px-1.5 pt-3 border-t border-white/10 whitespace-nowrap">
+            Auto-extracted for comparison — always verify against the original slip.
+          </div>
+        )}
       </aside>
 
       {/* Mobile / narrow-screen strip */}

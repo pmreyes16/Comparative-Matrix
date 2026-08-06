@@ -160,6 +160,26 @@ export default function App() {
     );
   }, []);
 
+  // "Unused" = never labeled AND no insurer has a value in it — i.e. added by
+  // mistake or left over from testing, not a row someone is mid-filling-in.
+  const isCustomRowEmpty = useCallback(
+    (row) => {
+      if ((row.label || '').trim()) return false;
+      const key = 'custom:' + row.id;
+      return !proposals.some((p) => p.overrides && String(p.overrides[key] || '').trim());
+    },
+    [proposals]
+  );
+
+  const emptyCustomRowCount = useMemo(
+    () => customRows.filter(isCustomRowEmpty).length,
+    [customRows, isCustomRowEmpty]
+  );
+
+  const removeEmptyCustomRows = useCallback(() => {
+    setCustomRows((prev) => prev.filter((r) => !isCustomRowEmpty(r)));
+  }, [isCustomRowEmpty]);
+
   // ---- Save / open the whole comparison (matrix + all manual edits) ----
   const restoreSnapshot = useCallback((d) => {
     if (!d || !Array.isArray(d.proposals)) { alert('That file is not a saved CRS comparison.'); return false; }
@@ -449,6 +469,8 @@ export default function App() {
                         onAddRow={addCustomRow}
                         onRenameRow={renameCustomRow}
                         onRemoveRow={removeCustomRow}
+                        onRemoveEmptyRows={removeEmptyCustomRows}
+                        emptyRowCount={emptyCustomRowCount}
                       />
                     )}
                   </>
