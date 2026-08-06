@@ -24,6 +24,56 @@ export function linesToPairs(lines) {
 const norm4 = (r) => [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])];
 
 /**
+ * Renders a page once and returns `isColored(item)` — true for reviewer-
+ * inserted red/orange ink (a struck value's replacement), false for the
+ * slip's own black body text. Strike-out rectangles are often drawn loosely
+ * around the old text and end up overlapping the colored replacement typed
+ * next to it; without this, that replacement gets silently deleted along
+ * with the text it was replacing. Only called when a page actually has
+ * strike-out annotations, so normal (unmarked-up) slips never pay for it.
+ */
+async function buildColorClassifier(page) {
+  const scale = 2;
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const w = canvas.width, h = canvas.height;
+
+  return (it) => {
+    const iw = it.width || 4;
+    const ih = it.height || Math.hypot(it.transform[2], it.transform[3]) || 10;
+    const x0 = it.transform[4], y0 = it.transform[5];
+    // Sample the glyph's mid-body band only: low enough to clear a nearby
+    // superscript replacement placed just above, but high enough to clear
+    // the strike-through line itself (drawn in the same ink near the
+    // baseline) — either one bleeding in would misclassify this item.
+    const p1 = viewport.convertToViewportPoint(x0 + iw * 0.15, y0 + ih * 0.28);
+    const p2 = viewport.convertToViewportPoint(x0 + iw * 0.85, y0 + ih * 0.6);
+    const x1 = Math.max(0, Math.min(p1[0], p2[0]));
+    const x2 = Math.min(w, Math.max(p1[0], p2[0]));
+    const y1 = Math.max(0, Math.min(p1[1], p2[1]));
+    const y2 = Math.min(h, Math.max(p1[1], p2[1]));
+    let rs = 0, gs = 0, bs = 0, n = 0;
+    for (let yy = Math.floor(y1); yy < Math.ceil(y2); yy++) {
+      for (let xx = Math.floor(x1); xx < Math.ceil(x2); xx++) {
+        const idx = (yy * w + xx) * 4;
+        const r = img[idx], g = img[idx + 1], b = img[idx + 2], a = img[idx + 3];
+        if (a > 0 && (r < 235 || g < 235 || b < 235)) { rs += r; gs += g; bs += b; n++; }
+      }
+    }
+    if (!n) return false;
+    const r = rs / n, g = gs / n, b = bs / n;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    return sat > 0.2 && r > g + 15 && r > b + 15; // reddish/orange ink vs. black/gray body text
+  };
+}
+
+/**
  * True when a line is page chrome (header / footer / classification banner /
  * reference code / reviewer initials) rather than slip content — so it can be
  * stripped from the extracted text. Applied to every file type.
@@ -66,12 +116,23 @@ async function extractPdf(file) {
     }
     const inStrike = (x, y) => strikeRects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
 
+    let isColored = null;
+    if (strikeRects.length) {
+      try {
+        isColored = await buildColorClassifier(page);
+      } catch (e) {
+        /* rendering unavailable — fall back to plain strike-rect removal */
+      }
+    }
+
     const rows = {};
     tc.items.forEach((it) => {
       if (!it.str || !it.str.trim()) return;
       const x = it.transform[4];
       const y = it.transform[5];
-      if (inStrike(x, y)) return; // skip crossed-out text
+      // Skip crossed-out text — but never the colored replacement written
+      // next to it, even if the strike rectangle happens to overlap it too.
+      if (inStrike(x, y) && !(isColored && isColored(it))) return;
       const yk = Math.round(y);
       (rows[yk] = rows[yk] || []).push({ x, s: it.str });
     });
