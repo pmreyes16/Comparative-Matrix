@@ -66,6 +66,47 @@ function MatrixEditableCell({ cell, onCommit }) {
   );
 }
 
+/** Click-to-edit row label for user-added rows, with an on-hover remove button. */
+function CustomRowLabel({ label, onRename, onRemove }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => { setEditing(false); onRename(val); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
+        placeholder="Row label"
+        className="w-full text-[13px] font-semibold rounded border border-cobalt-500 px-1.5 py-1 outline-none"
+      />
+    );
+  }
+
+  return (
+    <div className="group/rowlabel flex items-center gap-1.5">
+      <button
+        type="button"
+        title="Click to rename this row"
+        onClick={() => { setVal(label || ''); setEditing(true); }}
+        className="text-left flex-1 min-w-0 truncate"
+      >
+        {label ? label : <span className="text-slate-300 font-normal italic">Untitled row</span>}
+      </button>
+      <button
+        type="button"
+        title="Remove this row"
+        onClick={onRemove}
+        className="no-print shrink-0 text-slate-300 hover:text-poppy-600 opacity-0 group-hover/rowlabel:opacity-100 transition-opacity text-xs leading-none"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function MatrixSpinner() {
   return (
     <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -90,7 +131,7 @@ function MatrixArchiveIcon() {
  * column + header, section grouping and a per-insurer footnotes area. Pass
  * `onEdit` to make every cell click-to-edit; omit it for a read-only render.
  */
-export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive }) {
+export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow }) {
   const hasBaseline = !!matrix.baseline;
   const cols = matrix.columns;
   const editable = typeof onEdit === 'function';
@@ -220,7 +261,15 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
               return (
                 <tr key={ri} className={'align-top hover:bg-slate-50/70 ' + (row.total ? 'font-bold bg-slate-50' : '')}>
                   <th className={'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' + rowTop + (row.total ? ' bg-slate-50' : '')}>
-                    {row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
+                    {row.custom && editable ? (
+                      <CustomRowLabel
+                        label={row.field}
+                        onRename={(text) => onRenameRow && onRenameRow(row.rowId, text)}
+                        onRemove={() => onRemoveRow && onRemoveRow(row.rowId)}
+                      />
+                    ) : (
+                      row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')
+                    )}
                   </th>
                   {hasBaseline && (
                     <td className={'px-3 py-2 bg-cobalt-50/60 text-slate-800 ' + rowTop}>
@@ -263,6 +312,18 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
           </tbody>
         </table>
       </div>
+
+      {editable && onAddRow && (
+        <div className="no-print px-5 py-3 bg-slate-50 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={onAddRow}
+            className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 hover:border-cobalt-400 hover:text-cobalt-600 text-slate-500 text-xs font-medium px-3 py-1.5 transition-colors"
+          >
+            <span className="text-sm leading-none">+</span> Add a row
+          </button>
+        </div>
+      )}
 
       {matrix.footnotes && matrix.footnotes.length > 0 && (
         <div className="px-5 py-4 bg-slate-50 border-t border-slate-200">

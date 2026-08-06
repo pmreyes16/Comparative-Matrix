@@ -10,20 +10,53 @@ const TODAY = new Date('2026-07-01T00:00:00');
 
 const nameOf = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
 
-function KpiTile({ label, tone, children }) {
-  const ring =
-    tone === 'good'
-      ? 'ring-teal-200 bg-teal-50'
-      : tone === 'warn'
-      ? 'ring-rosegold-200 bg-rosegold-50'
-      : 'ring-slate-200 bg-white';
+function KpiTile({ label, tone, icon, children }) {
+  const iconBg = tone === 'good' ? 'bg-teal-500' : tone === 'warn' ? 'bg-rosegold-500' : 'bg-cobalt-500';
   return (
-    <div className={'rounded-xl ring-1 p-3 ' + ring}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1">{children}</div>
+    <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3.5 shadow-sm">
+      <div className="flex items-center gap-2.5 mb-2">
+        <span className={'inline-flex items-center justify-center w-8 h-8 rounded-lg text-white shrink-0 ' + iconBg}>
+          {icon}
+        </span>
+        <div className="text-[11px] uppercase tracking-wide text-slate-400 leading-tight">{label}</div>
+      </div>
+      {children}
     </div>
   );
 }
+
+function KpiIcon({ children }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+const IconStack = () => (
+  <KpiIcon>
+    <path d="M4 7l8-4 8 4-8 4-8-4Z" />
+    <path d="M4 12l8 4 8-4M4 17l8 4 8-4" />
+  </KpiIcon>
+);
+const IconTrendDown = () => (
+  <KpiIcon>
+    <path d="M4 7l6 6 4-4 6 6" />
+    <path d="M20 14v5h-5" />
+  </KpiIcon>
+);
+const IconTrendUp = () => (
+  <KpiIcon>
+    <path d="M4 17l6-6 4 4 6-8" />
+    <path d="M14 7h6v6" />
+  </KpiIcon>
+);
+const IconPercent = () => (
+  <KpiIcon>
+    <circle cx="7" cy="7" r="2.3" />
+    <circle cx="17" cy="17" r="2.3" />
+    <path d="M18 6 6 18" />
+  </KpiIcon>
+);
 
 function ValueRanker({ proposals }) {
   const [weight, setWeight] = useState(0.5);
@@ -196,7 +229,7 @@ export default function Overview({ proposals, onView }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <KpiTile label="Proposals compared">
+        <KpiTile label="Proposals compared" icon={<IconStack />}>
           <div className="text-2xl font-bold text-slate-800 tnum">{A.count}</div>
           <div className="text-[11px] text-slate-400 truncate">{A.policyTypes.join(', ') || '—'}</div>
           <div className="text-[11px] text-slate-400 truncate">
@@ -206,7 +239,7 @@ export default function Overview({ proposals, onView }) {
               .join(' · ')}
           </div>
         </KpiTile>
-        <KpiTile label="Lowest total premium" tone={A.lowest ? 'good' : undefined}>
+        <KpiTile label="Lowest total premium" tone={A.lowest ? 'good' : undefined} icon={<IconTrendDown />}>
           {A.lowest ? (
             <div>
               <div className="mono-amt tnum text-lg font-bold text-teal-700">{A.lowest.disp}</div>
@@ -216,7 +249,7 @@ export default function Overview({ proposals, onView }) {
             <span className="text-sm italic text-slate-400">Not detected</span>
           )}
         </KpiTile>
-        <KpiTile label="Highest total premium">
+        <KpiTile label="Highest total premium" icon={<IconTrendUp />}>
           {A.highest ? (
             <div>
               <div className="mono-amt tnum text-lg font-bold text-slate-700">{A.highest.disp}</div>
@@ -226,7 +259,7 @@ export default function Overview({ proposals, onView }) {
             <span className="text-sm italic text-slate-400">Not detected</span>
           )}
         </KpiTile>
-        <KpiTile label="Potential saving (computed)" tone={A.spread ? 'good' : undefined}>
+        <KpiTile label="Potential saving (computed)" tone={A.spread ? 'good' : undefined} icon={<IconPercent />}>
           {A.spread != null ? (
             <div>
               <div className="mono-amt tnum text-lg font-bold text-slate-800">{formatComputed(A.spread, A.symbol)}</div>

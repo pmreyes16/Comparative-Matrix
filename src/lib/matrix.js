@@ -18,7 +18,7 @@ export function cellToText(cell) {
   return cell.v || '';
 }
 
-export function buildMatrixFromProposals(proposals, baselineId) {
+export function buildMatrixFromProposals(proposals, baselineId, customRows) {
   const list = proposals || [];
   const nm = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -56,6 +56,8 @@ export function buildMatrixFromProposals(proposals, baselineId) {
       total: !!opts.total,
       key,
       subLabel: opts.subLabel,
+      custom: !!opts.custom,
+      rowId: opts.rowId,
     };
   }
 
@@ -130,6 +132,12 @@ export function buildMatrixFromProposals(proposals, baselineId) {
     ['VALIDITY OF QUOTE', (p) => p.validityOfQuote, 'validityOfQuote'],
   ];
   tail.forEach((f) => rows.push(makeRow(f[0], f[1], { key: f[2] })));
+
+  // User-added rows — free-text label plus per-column values, both stored as
+  // overrides (there is no extracted source for them), appended after the tail.
+  (customRows || []).forEach((cr) =>
+    rows.push(makeRow(cr.label || '', () => '', { key: 'custom:' + cr.id, custom: true, rowId: cr.id }))
+  );
 
   const insuredName = [...new Set(list.map((p) => (p.insured || '').trim()).filter(Boolean))][0] || '';
   return {

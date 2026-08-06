@@ -33,7 +33,7 @@ function persist(list) {
   storageSet(KEY, JSON.stringify(list));
 }
 
-export function buildArchiveRecord(proposals, baselineId, meta) {
+export function buildArchiveRecord(proposals, baselineId, customRows, meta) {
   const p0 = (proposals && proposals[0]) || {};
   const clientName =
     (p0.insured || '').trim() ||
@@ -55,15 +55,16 @@ export function buildArchiveRecord(proposals, baselineId, meta) {
     saved_by: (meta && meta.saved_by) || 'You',
     baselineId: baselineId || 'none',
     proposals: JSON.parse(JSON.stringify(proposals || [])), // deep-copied snapshot
+    customRows: JSON.parse(JSON.stringify(customRows || [])),
   };
 }
 
 // Save a NEW archive record (prepended → newest first). Returns the record.
-export function saveMatrixToArchive(proposals, baselineId, meta) {
+export function saveMatrixToArchive(proposals, baselineId, customRows, meta) {
   if (!proposals || !proposals.length) {
     throw new Error('Nothing to save yet — upload some slips first.');
   }
-  const rec = buildArchiveRecord(proposals, baselineId, meta);
+  const rec = buildArchiveRecord(proposals, baselineId, customRows, meta);
   const list = loadArchive();
   list.unshift(rec);
   persist(list);
@@ -141,7 +142,7 @@ export function comparisonFilename(proposals) {
   return [client, policy, stamp].filter(Boolean).join('-') + '.comparison.json';
 }
 
-export function buildComparisonPayload(proposals, baselineId) {
+export function buildComparisonPayload(proposals, baselineId, customRows) {
   const p0 = (proposals && proposals[0]) || {};
   return {
     app: 'howden-comparator',
@@ -152,5 +153,6 @@ export function buildComparisonPayload(proposals, baselineId) {
     policy_type: (p0.policyType || '').trim(),
     baselineId: baselineId || 'none',
     proposals: JSON.parse(JSON.stringify(proposals || [])),
+    customRows: JSON.parse(JSON.stringify(customRows || [])),
   };
 }
