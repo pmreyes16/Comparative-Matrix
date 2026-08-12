@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import howdenLogo from '../assets/howden-logo.gif';
+import howdenLogo from '../assets/Howden Logo cobalt blue.png';
 
 function Icon({ children }) {
   return (
@@ -9,37 +9,6 @@ function Icon({ children }) {
   );
 }
 
-const IconOverview = () => (
-  <Icon>
-    <rect x="3.5" y="3.5" width="7" height="7" rx="1.3" />
-    <rect x="13.5" y="3.5" width="7" height="7" rx="1.3" />
-    <rect x="3.5" y="13.5" width="7" height="7" rx="1.3" />
-    <rect x="13.5" y="13.5" width="7" height="7" rx="1.3" />
-  </Icon>
-);
-const IconBestFit = () => (
-  <Icon>
-    <line x1="4" y1="6" x2="20" y2="6" />
-    <circle cx="14.5" cy="6" r="1.8" />
-    <line x1="4" y1="12" x2="20" y2="12" />
-    <circle cx="8.5" cy="12" r="1.8" />
-    <line x1="4" y1="18" x2="20" y2="18" />
-    <circle cx="16.5" cy="18" r="1.8" />
-  </Icon>
-);
-const IconMatrix = () => (
-  <Icon>
-    <rect x="3" y="4" width="18" height="16" rx="1.5" />
-    <path d="M3 9.5h18M3 15h18M9.5 4v16" />
-  </Icon>
-);
-const IconProposal = () => (
-  <Icon>
-    <path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
-    <path d="M15 3v4h4" />
-    <path d="M8 13h7M8 16h7M8 10h3" />
-  </Icon>
-);
 const IconDocControl = () => (
   <Icon>
     <path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.6l1.8 2H18.8A2.2 2.2 0 0 1 21 9.2v7.6A2.2 2.2 0 0 1 18.8 19H5.2A2.2 2.2 0 0 1 3 16.8V7.2Z" />
@@ -54,10 +23,6 @@ const IconArchive = () => (
 );
 
 const NAV_ITEMS = [
-  { key: 'overview', label: 'Overview', requiresData: true, Icon: IconOverview },
-  { key: 'bestfit', label: 'Best Fit', requiresData: true, Icon: IconBestFit },
-  { key: 'matrix', label: 'Matrix', requiresData: true, Icon: IconMatrix },
-  { key: 'proposal', label: 'Generate a Proposal', requiresData: true, Icon: IconProposal },
   { key: 'doccontrol', label: 'Document Control', requiresData: false, Icon: IconDocControl },
   { key: 'archive', label: 'Archive', requiresData: false, Icon: IconArchive },
 ];
@@ -118,7 +83,6 @@ export default function Sidebar({ view, setView, hasData, isArchive }) {
               <img src={howdenLogo} alt="Howden" className="h-8 w-auto shrink-0" />
               <div className="min-w-0 border-l border-white/15 pl-2.5 whitespace-nowrap">
                 <div className="text-[12px] font-bold uppercase tracking-wide text-teal-400 leading-tight">HowdenPH-Apps</div>
-                <div className="text-[11px] text-cobalt-200/80 leading-snug mt-0.5">CRS Comparative Analysis</div>
               </div>
             </div>
           ) : (

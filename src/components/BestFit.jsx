@@ -1,18 +1,86 @@
 import React, { useMemo, useState } from 'react';
-import { Badge } from './common.jsx';
-import { CRITERIA, PRESETS, scoreProposals } from '../lib/bestfit.js';
+import { Logo } from './common.jsx';
+import { CRITERIA, PRESETS, scoreProposals, criterionWinner } from '../lib/bestfit.js';
 
 const nameOf = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
+const money0 = (n) => '₱' + Math.round(n).toLocaleString('en-US');
 
 export default function BestFit({ proposals }) {
   const [weights, setWeights] = useState(() => Object.fromEntries(CRITERIA.map((c) => [c.key, c.def])));
   const ranked = useMemo(() => scoreProposals(proposals, weights), [proposals, weights]);
   const max = Math.max(...ranked.map((r) => r.score), 0.0001);
   const best = ranked[0];
+  const runnerUp = ranked[1];
   const setW = (key, v) => setWeights((w) => ({ ...w, [key]: v }));
+
+  // What the recommendation is actually based on: which of the criteria the
+  // AE is currently weighting does the top pick win outright, and how much
+  // cheaper is it than the priciest quote on the table.
+  const wins = useMemo(() => {
+    if (!best) return [];
+    return CRITERIA.filter((c) => weights[c.key] > 0).filter((c) => {
+      const w = criterionWinner(proposals, c.key);
+      return w && w.p.id === best.p.id;
+    });
+  }, [proposals, weights, best]);
+
+  const savings = useMemo(() => {
+    if (!best) return null;
+    const premiumC = CRITERIA.find((c) => c.key === 'premium');
+    const nums = ranked.map((r) => premiumC.num(r.p)).filter((v) => v != null && isFinite(v));
+    const bestAmt = premiumC.num(best.p);
+    if (bestAmt == null || nums.length < 2) return null;
+    const highest = Math.max(...nums);
+    if (highest <= bestAmt) return null;
+    const diff = highest - bestAmt;
+    return { diff, pct: Math.round((diff / highest) * 100) };
+  }, [ranked, best]);
+
+  const bestLogo = best && best.p.insurers[0];
 
   return (
     <div className="space-y-4">
+      {best && (
+        <div className="relative overflow-hidden rounded-xl ring-1 ring-teal-200 bg-gradient-to-br from-teal-50 via-white to-cobalt-50 shadow-sm p-5">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <Logo name={nameOf(best.p)} url={bestLogo && bestLogo.logoUrl} size={44} />
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-600">Recommended quotation</div>
+                <div className="text-xl font-bold text-slate-800 truncate">{nameOf(best.p)}</div>
+                <div className="text-sm text-slate-500 mt-0.5">
+                  {Math.round(best.score)}/100 on your current weighting
+                  {runnerUp && ranked.length > 1 && (
+                    <> · {Math.round(best.score - runnerUp.score)} pts ahead of {nameOf(runnerUp.p)}</>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">Total Premium</div>
+              <div className="text-2xl font-bold text-slate-800 tnum">{CRITERIA.find((c) => c.key === 'premium').disp(best.p)}</div>
+              {savings && (
+                <div className="text-xs text-teal-700 font-medium mt-0.5">
+                  {money0(savings.diff)} lower than the highest quote ({savings.pct}%)
+                </div>
+              )}
+            </div>
+          </div>
+          {wins.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {wins.map((c) => (
+                <span key={c.key} className="inline-flex items-center gap-1 rounded-full bg-white ring-1 ring-teal-200 text-teal-700 text-[11px] font-medium px-2.5 py-1">
+                  ✓ Best {c.label}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 text-[11px] text-slate-400">
+            Reflects your weighting below — a comparison aid, not a final recommendation; always verify against the original slips.
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
@@ -45,14 +113,7 @@ export default function BestFit({ proposals }) {
       </div>
 
       <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ranking on your weighting</div>
-          {best && (
-            <Badge tone="brand">
-              Highest score: {nameOf(best.p)} · {Math.round(best.score)}/100
-            </Badge>
-          )}
-        </div>
+        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Ranking on your weighting</div>
         <div className="space-y-2">
           {ranked.map((r, i) => (
             <div key={r.p.id} className="flex items-center gap-3">

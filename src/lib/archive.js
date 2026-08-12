@@ -33,7 +33,7 @@ function persist(list) {
   storageSet(KEY, JSON.stringify(list));
 }
 
-export function buildArchiveRecord(proposals, baselineId, customRows, meta) {
+export function buildArchiveRecord(proposals, baselineId, customRows, rowOrder, meta) {
   const p0 = (proposals && proposals[0]) || {};
   const clientName =
     (p0.insured || '').trim() ||
@@ -56,15 +56,16 @@ export function buildArchiveRecord(proposals, baselineId, customRows, meta) {
     baselineId: baselineId || 'none',
     proposals: JSON.parse(JSON.stringify(proposals || [])), // deep-copied snapshot
     customRows: JSON.parse(JSON.stringify(customRows || [])),
+    rowOrder: JSON.parse(JSON.stringify(rowOrder || [])),
   };
 }
 
 // Save a NEW archive record (prepended → newest first). Returns the record.
-export function saveMatrixToArchive(proposals, baselineId, customRows, meta) {
+export function saveMatrixToArchive(proposals, baselineId, customRows, rowOrder, meta) {
   if (!proposals || !proposals.length) {
     throw new Error('Nothing to save yet — upload some slips first.');
   }
-  const rec = buildArchiveRecord(proposals, baselineId, customRows, meta);
+  const rec = buildArchiveRecord(proposals, baselineId, customRows, rowOrder, meta);
   const list = loadArchive();
   list.unshift(rec);
   persist(list);
@@ -142,7 +143,7 @@ export function comparisonFilename(proposals) {
   return [client, policy, stamp].filter(Boolean).join('-') + '.comparison.json';
 }
 
-export function buildComparisonPayload(proposals, baselineId, customRows) {
+export function buildComparisonPayload(proposals, baselineId, customRows, rowOrder) {
   const p0 = (proposals && proposals[0]) || {};
   return {
     app: 'howden-comparator',
@@ -154,5 +155,6 @@ export function buildComparisonPayload(proposals, baselineId, customRows) {
     baselineId: baselineId || 'none',
     proposals: JSON.parse(JSON.stringify(proposals || [])),
     customRows: JSON.parse(JSON.stringify(customRows || [])),
+    rowOrder: JSON.parse(JSON.stringify(rowOrder || [])),
   };
 }

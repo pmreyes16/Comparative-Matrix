@@ -18,7 +18,7 @@ export function cellToText(cell) {
   return cell.v || '';
 }
 
-export function buildMatrixFromProposals(proposals, baselineId, customRows) {
+export function buildMatrixFromProposals(proposals, baselineId, customRows, rowOrder) {
   const list = proposals || [];
   const nm = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -139,15 +139,30 @@ export function buildMatrixFromProposals(proposals, baselineId, customRows) {
     rows.push(makeRow(cr.label || '', () => '', { key: 'custom:' + cr.id, custom: true, rowId: cr.id }))
   );
 
+  // Every row (built-in fields included) is drag-reorderable in the Matrix —
+  // `rowOrder` is the user's saved arrangement, by row key. Anything not in
+  // it yet (a brand-new premium line item, a row added since) keeps its
+  // natural position, appended after the ordered ones.
+  let orderedRows = rows;
+  if (rowOrder && rowOrder.length) {
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    orderedRows = [];
+    rowOrder.forEach((k) => {
+      const r = byKey.get(k);
+      if (r) { orderedRows.push(r); byKey.delete(k); }
+    });
+    rows.forEach((r) => { if (byKey.has(r.key)) orderedRows.push(r); });
+  }
+
   const insuredName = [...new Set(list.map((p) => (p.insured || '').trim()).filter(Boolean))][0] || '';
   return {
-    // Header reads: insured name (heading) with "Comparative Matrix" below it.
+    // Header reads: insured name (heading) with "CRS Comparative System" below it.
     eyebrow: '',
-    title: insuredName || 'Comparative Matrix',
-    subtitle: insuredName ? 'Comparative Matrix' : '',
+    title: insuredName || 'CRS Comparative System',
+    subtitle: insuredName ? 'CRS Comparative System' : '',
     baseline: baseline ? { id: baseline.id, name: nm(baseline), role: 'Selected baseline' } : null,
     columns: columns.map((c) => ({ id: c.id, name: c.name, logoUrl: c.logoUrl })),
-    rows,
+    rows: orderedRows,
     footnotes: [],
   };
 }

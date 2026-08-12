@@ -136,7 +136,7 @@ export function exportMatrixToXlsx(matrix, filename) {
       .concat(hasBaseline ? [{ wch: 46 }] : [])
       .concat(matrix.columns.map(() => ({ wch: 32 })));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Comparative Matrix');
+    XLSX.utils.book_append_sheet(wb, ws, 'CRS Comparative System');
     const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     triggerDownload(filename || exportFilename(matrix, 'xlsx'), new Blob([out], { type: 'application/octet-stream' }));
   } catch (e) {
@@ -255,12 +255,9 @@ export async function buildMatrixPdfBlob(matrix) {
   } catch (e) {
     /* logo is decorative — proceed without it if rasterization fails */
   }
-  const logoH = 26;
+  const logoH = 40;
   const logoW = logo ? logoH * logo.aspect : 0;
   const textX = logo ? margin + logoW + 14 : margin;
-  if (logo) {
-    doc.addImage(logo.dataUrl, 'PNG', margin, y - 6, logoW, logoH);
-  }
 
   if (matrix.eyebrow) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(0, 63, 153);
@@ -268,16 +265,21 @@ export async function buildMatrixPdfBlob(matrix) {
     y += 14;
   }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(33, 30, 36);
-  doc.text(pdfSafe(matrix.title || 'Comparative Matrix'), textX, y);
+  const titleBaselineY = y;
+  doc.text(pdfSafe(matrix.title || 'CRS Comparative System'), textX, titleBaselineY);
   y += 18;
-  if (matrix.subtitle) {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100, 116, 139);
-    doc.text(pdfSafe(matrix.subtitle), textX, y);
-    y += 14;
-  }
-  // The title block might be shorter than the logo (e.g. no eyebrow/subtitle)
-  // — don't let the table start before the logo's bottom edge.
-  y = Math.max(y, margin - 6 + logoH + 10);
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100, 116, 139);
+  doc.text('Comparative Matrix', textX, y);
+  y += 14;
+
+  // Vertically center the logo on the title line (the insured's name), not
+  // the whole eyebrow+title block, so it visually lines up with the name.
+  const logoY = titleBaselineY - 6 - logoH / 2;
+  if (logo) doc.addImage(logo.dataUrl, 'PNG', margin, logoY, logoW, logoH);
+  // The title block might be shorter than the logo — don't let the table
+  // start before the logo's bottom edge.
+  y = Math.max(y, logoY + logoH + 10);
   y += 6;
 
   const hasBaseline = !!matrix.baseline;

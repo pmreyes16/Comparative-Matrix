@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { isDeleted } from '../lib/matrix.js';
 import { exportMatrixToXlsx, exportMatrixToPdf, toast } from '../lib/exportMatrix.js';
-import howdenCorporateLogo from '../assets/Howden logo - Corporate.svg';
 
 function MatrixCell({ cell }) {
   if (!cell || cell.t === 'empty') return <span className="text-slate-300">—</span>;
@@ -66,8 +65,35 @@ function MatrixEditableCell({ cell, onCommit }) {
   );
 }
 
-/** Click-to-edit row label for user-added rows, with an on-hover remove button. */
-function CustomRowLabel({ label, onRename, onRemove }) {
+function DragHandle({ onDragStart, onDragEnd }) {
+  return (
+    <span
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      title="Drag to reorder"
+      className="no-print shrink-0 -ml-1 p-1 rounded cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 hover:bg-slate-100 select-none"
+    >
+      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+        <circle cx="9" cy="6" r="1.6" />
+        <circle cx="9" cy="12" r="1.6" />
+        <circle cx="9" cy="18" r="1.6" />
+        <circle cx="15" cy="6" r="1.6" />
+        <circle cx="15" cy="12" r="1.6" />
+        <circle cx="15" cy="18" r="1.6" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * Row label cell for every row in the Matrix — a drag handle to reorder it
+ * (built-in fields included, not just user-added rows) and an on-hover
+ * button to insert a new row right below it. User-added rows additionally
+ * get click-to-rename and a remove button; built-in fields show their fixed
+ * label as plain text since they can't be renamed or deleted.
+ */
+function RowLabel({ row, staticLabel, dragging, onRename, onRemove, onInsertBelow, onDragStart, onDragEnd }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
 
@@ -86,23 +112,38 @@ function CustomRowLabel({ label, onRename, onRemove }) {
   }
 
   return (
-    <div className="group/rowlabel flex items-center gap-1.5">
+    <div className={'group/rowlabel flex items-center gap-1 ' + (dragging ? 'opacity-40' : '')}>
+      <DragHandle onDragStart={onDragStart} onDragEnd={onDragEnd} />
+      {row.custom ? (
+        <button
+          type="button"
+          title="Click to rename this row"
+          onClick={() => { setVal(row.field || ''); setEditing(true); }}
+          className="text-left flex-1 min-w-0 truncate"
+        >
+          {row.field ? row.field : <span className="text-slate-300 font-normal italic">Untitled row</span>}
+        </button>
+      ) : (
+        <span className="flex-1 min-w-0">{staticLabel}</span>
+      )}
       <button
         type="button"
-        title="Click to rename this row"
-        onClick={() => { setVal(label || ''); setEditing(true); }}
-        className="text-left flex-1 min-w-0 truncate"
+        title="Insert a row below"
+        onClick={onInsertBelow}
+        className="no-print shrink-0 text-slate-300 hover:text-cobalt-600 opacity-0 group-hover/rowlabel:opacity-100 transition-opacity text-xs leading-none"
       >
-        {label ? label : <span className="text-slate-300 font-normal italic">Untitled row</span>}
+        +
       </button>
-      <button
-        type="button"
-        title="Remove this row"
-        onClick={onRemove}
-        className="no-print shrink-0 text-slate-300 hover:text-poppy-600 opacity-0 group-hover/rowlabel:opacity-100 transition-opacity text-xs leading-none"
-      >
-        ✕
-      </button>
+      {row.custom && (
+        <button
+          type="button"
+          title="Remove this row"
+          onClick={onRemove}
+          className="no-print shrink-0 text-slate-300 hover:text-poppy-600 opacity-0 group-hover/rowlabel:opacity-100 transition-opacity text-xs leading-none"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -131,11 +172,12 @@ function MatrixArchiveIcon() {
  * column + header, section grouping and a per-insurer footnotes area. Pass
  * `onEdit` to make every cell click-to-edit; omit it for a read-only render.
  */
-export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onRemoveEmptyRows, emptyRowCount }) {
+export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onMoveRow, onRemoveEmptyRows, emptyRowCount }) {
   const hasBaseline = !!matrix.baseline;
   const cols = matrix.columns;
   const editable = typeof onEdit === 'function';
   const [busy, setBusy] = useState(null);
+  const [dragRowKey, setDragRowKey] = useState(null);
 
   // Run an action with a disabled + spinner state; catch failures → error toast.
   const run = async (kind, fn) => {
@@ -155,11 +197,6 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
     <div id="matrix-print" className="rounded-2xl ring-1 ring-slate-200 shadow-sm bg-white overflow-hidden">
       <div className="bg-gradient-to-r from-cobalt-900 to-cobalt-700 text-white px-5 py-4 flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
-          {/* White chip behind the logo — its native blue fill has poor
-              contrast directly on this dark cobalt band otherwise. */}
-          <div className="bg-white rounded-md px-2.5 py-1.5 shrink-0">
-            <img src={howdenCorporateLogo} alt="Howden" className="h-5 w-auto" />
-          </div>
           <div className="min-w-0">
             {matrix.eyebrow && (
               <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-200">{matrix.eyebrow}</div>
@@ -234,14 +271,14 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
       </div>
 
       <div className="overflow-auto cmp-scroll max-h-[85vh]">
-        <table className="min-w-full border-collapse text-[13px]">
+        <table className="min-w-full table-fixed border-collapse text-[13px]">
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-left px-3 py-3 font-semibold text-slate-500 border-b border-r border-slate-200 w-52 min-w-[13rem]">
+              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-left px-3 py-3 font-semibold text-slate-500 border-b border-r border-slate-200 w-52">
                 Terms &amp; Conditions
               </th>
               {hasBaseline && (
-                <th className="sticky top-0 z-20 bg-cobalt-50 text-left px-3 py-3 border-b border-slate-200 min-w-[220px] align-bottom">
+                <th className="sticky top-0 z-20 bg-cobalt-50 text-left px-3 py-3 border-b border-slate-200 w-64 align-bottom">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-cobalt-600">
                     {matrix.baseline.role || 'Proposed'}
                   </div>
@@ -249,7 +286,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                 </th>
               )}
               {cols.map((c) => (
-                <th key={c.id} className="sticky top-0 z-20 bg-slate-100 px-3 py-3 text-left border-b border-slate-200 min-w-[200px] align-bottom">
+                <th key={c.id} className="sticky top-0 z-20 bg-slate-100 px-3 py-3 text-left border-b border-slate-200 w-64 align-bottom">
                   <span className="font-semibold text-slate-700 leading-tight">{c.name}</span>
                 </th>
               ))}
@@ -259,13 +296,36 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
             {matrix.rows.map((row, ri) => {
               const rowTop = row.newField ? 'border-t-2 border-slate-200' : 'border-t border-slate-100';
               return (
-                <tr key={ri} className={'align-top hover:bg-slate-50/70 ' + (row.total ? 'font-bold bg-slate-50' : '')}>
+                <tr
+                  key={ri}
+                  className={'align-top hover:bg-slate-50/70 ' + (row.total ? 'font-bold bg-slate-50' : '') + (editable && dragRowKey && dragRowKey !== row.key ? ' bg-cobalt-50/40' : '')}
+                  onDragOver={editable && dragRowKey ? (e) => e.preventDefault() : undefined}
+                  onDrop={
+                    editable && dragRowKey
+                      ? (e) => {
+                          e.preventDefault();
+                          if (dragRowKey !== row.key) onMoveRow && onMoveRow(dragRowKey, row.key);
+                          setDragRowKey(null);
+                        }
+                      : undefined
+                  }
+                >
                   <th className={'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' + rowTop + (row.total ? ' bg-slate-50' : '')}>
-                    {row.custom && editable ? (
-                      <CustomRowLabel
-                        label={row.field}
+                    {editable ? (
+                      <RowLabel
+                        row={row}
+                        staticLabel={row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
+                        dragging={dragRowKey === row.key}
                         onRename={(text) => onRenameRow && onRenameRow(row.rowId, text)}
                         onRemove={() => onRemoveRow && onRemoveRow(row.rowId)}
+                        onInsertBelow={() => onAddRow && onAddRow(row.key)}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          // Firefox won't start a native drag at all unless data is set here.
+                          e.dataTransfer.setData('text/plain', row.key);
+                          setDragRowKey(row.key);
+                        }}
+                        onDragEnd={() => setDragRowKey(null)}
                       />
                     ) : (
                       row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')

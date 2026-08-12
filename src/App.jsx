@@ -20,9 +20,9 @@ import { saveStoredTemplate, deleteStoredTemplate, listStoredTemplates } from '.
 
 // Per-view heading shown at the top of the main card.
 const VIEW_META = {
-  overview: { eyebrow: 'Dashboard', title: 'Overview', subtitle: 'Upload quotation slips from multiple insurers — compare premiums, cover and terms side by side.' },
-  bestfit: { eyebrow: 'Dashboard', title: 'Best Fit', subtitle: 'Weighted, multi-criteria ranking across price, cover and terms.' },
-  matrix: { eyebrow: 'Dashboard', title: 'Comparative Matrix', subtitle: 'Baseline vs. insurer terms, side by side.' },
+  overview: { eyebrow: 'CRS Comparative System', title: 'Overview', subtitle: 'Upload quotation slips from multiple insurers — compare premiums, cover and terms side by side.' },
+  bestfit: { eyebrow: 'CRS Comparative System', title: 'Best Fit', subtitle: 'Weighted, multi-criteria ranking across price, cover and terms.' },
+  matrix: { eyebrow: 'Dashboard', title: 'CRS Comparative System', subtitle: 'Baseline vs. insurer terms, side by side.' },
   proposal: { eyebrow: 'Recommendation', title: 'Generate a Proposal', subtitle: 'A client-ready recommendation document built from your comparison.' },
   doccontrol: { eyebrow: 'Templates', title: 'Document Control', subtitle: 'Your standard Quotation Slip templates, one per line of insurance.' },
   archive: { eyebrow: 'History', title: 'Archive', subtitle: 'Matrices you’ve saved in this browser.' },
@@ -49,6 +49,7 @@ export default function App() {
   const [clauseKeyword, setClauseKeyword] = useState('');
   const [baselineId, setBaselineId] = useState('none');
   const [customRows, setCustomRows] = useState([]); // user-added matrix rows: [{ id, label }]
+  const [rowOrder, setRowOrder] = useState([]); // drag-and-drop arrangement of ALL matrix rows, by row key
   const [archiveList, setArchiveList] = useState([]);   // saved matrices (localStorage)
   const [archiveItem, setArchiveItem] = useState(null); // record being viewed read-only
   const [justSaved, setJustSaved] = useState(null);     // last saved record → confirmation banner
@@ -136,19 +137,13 @@ export default function App() {
     });
   }, [editProposal]);
 
-  // Add a blank custom row to the bottom of the Matrix — its label and every
-  // column value are free text, stored the same way as any other manual edit.
-  const addCustomRow = useCallback(() => {
-    const id = 'row_' + Math.random().toString(36).slice(2, 9);
-    setCustomRows((prev) => [...prev, { id, label: '' }]);
-  }, []);
-
   const renameCustomRow = useCallback((id, label) => {
     setCustomRows((prev) => prev.map((r) => (r.id === id ? { ...r, label } : r)));
   }, []);
 
   const removeCustomRow = useCallback((id) => {
     setCustomRows((prev) => prev.filter((r) => r.id !== id));
+    setRowOrder((prev) => prev.filter((k) => k !== 'custom:' + id));
     const key = 'custom:' + id;
     setProposals((prev) =>
       prev.map((p) => {
@@ -177,8 +172,10 @@ export default function App() {
   );
 
   const removeEmptyCustomRows = useCallback(() => {
+    const emptyKeys = new Set(customRows.filter(isCustomRowEmpty).map((r) => 'custom:' + r.id));
     setCustomRows((prev) => prev.filter((r) => !isCustomRowEmpty(r)));
-  }, [isCustomRowEmpty]);
+    setRowOrder((prev) => prev.filter((k) => !emptyKeys.has(k)));
+  }, [customRows, isCustomRowEmpty]);
 
   // ---- Save / open the whole comparison (matrix + all manual edits) ----
   const restoreSnapshot = useCallback((d) => {
@@ -186,6 +183,7 @@ export default function App() {
     setProposals(d.proposals);
     setBaselineId(d.baselineId || 'none');
     setCustomRows(Array.isArray(d.customRows) ? d.customRows : []);
+    setRowOrder(Array.isArray(d.rowOrder) ? d.rowOrder : []);
     setFiles(d.proposals.map((p) => ({
       id: p.id,
       name: p.fileName || 'Restored proposal',
@@ -202,12 +200,12 @@ export default function App() {
   const saveComparison = useCallback(async () => {
     if (!proposals.length) throw new Error('Nothing to save yet — upload some slips first.');
     const name = comparisonFilename(proposals);
-    triggerDownload(name, new Blob([JSON.stringify(buildComparisonPayload(proposals, baselineId, customRows), null, 2)], { type: 'application/json' }));
+    triggerDownload(name, new Blob([JSON.stringify(buildComparisonPayload(proposals, baselineId, customRows, rowOrder), null, 2)], { type: 'application/json' }));
     let rec = null;
-    try { rec = saveMatrixToArchive(proposals, baselineId, customRows); setArchiveList(loadArchive()); } catch (e) { /* storage blocked */ }
+    try { rec = saveMatrixToArchive(proposals, baselineId, customRows, rowOrder); setArchiveList(loadArchive()); } catch (e) { /* storage blocked */ }
     setJustSaved({ name, title: (rec && rec.title) || name, archived: !!(rec && storageAvailable) });
     return { name, rec };
-  }, [proposals, baselineId, customRows]);
+  }, [proposals, baselineId, customRows, rowOrder]);
 
   const openComparison = useCallback((file) => {
     const rd = new FileReader();
@@ -221,7 +219,7 @@ export default function App() {
   }, [restoreSnapshot]);
 
   const restoreFromArchive = useCallback((rec) => {
-    restoreSnapshot({ proposals: rec.proposals, baselineId: rec.baselineId, customRows: rec.customRows });
+    restoreSnapshot({ proposals: rec.proposals, baselineId: rec.baselineId, customRows: rec.customRows, rowOrder: rec.rowOrder });
     setView('matrix');
     setJustSaved(null);
     toast('Restored “' + (rec.title || 'comparison') + '” — you can edit and re-save.');
@@ -235,9 +233,9 @@ export default function App() {
   // Auto-save to the browser so a refresh doesn't lose work.
   useEffect(() => {
     try {
-      if (proposals.length) storageSet('crs-comparison', JSON.stringify({ version: 1, savedAt: new Date().toISOString(), baselineId, proposals, customRows }));
+      if (proposals.length) storageSet('crs-comparison', JSON.stringify({ version: 1, savedAt: new Date().toISOString(), baselineId, proposals, customRows, rowOrder }));
     } catch (e) { /* storage unavailable / full */ }
-  }, [proposals, baselineId, customRows]);
+  }, [proposals, baselineId, customRows, rowOrder]);
 
   const [restorable, setRestorable] = useState(null);
   useEffect(() => {
@@ -303,7 +301,49 @@ export default function App() {
     return map;
   }, [shown]);
 
-  const builtMatrix = useMemo(() => buildMatrixFromProposals(shown, baselineId, customRows), [shown, baselineId, customRows]);
+  const builtMatrix = useMemo(
+    () => buildMatrixFromProposals(shown, baselineId, customRows, rowOrder),
+    [shown, baselineId, customRows, rowOrder]
+  );
+
+  // The row-key sequence currently on screen — the base to reorder/insert
+  // against until the user has actually dragged something (rowOrder empty).
+  const currentRowKeys = useCallback(
+    () => (rowOrder.length ? rowOrder : builtMatrix.rows.map((r) => r.key)),
+    [rowOrder, builtMatrix]
+  );
+
+  // Add a blank custom row — its label and every column value are free text,
+  // stored the same way as any other manual edit. Pass afterKey (any row's
+  // key, built-in or custom) to insert right below it instead of appending
+  // to the very bottom of the whole table.
+  const addCustomRow = useCallback((afterKey) => {
+    const id = 'row_' + Math.random().toString(36).slice(2, 9);
+    const newKey = 'custom:' + id;
+    setCustomRows((prev) => [...prev, { id, label: '' }]);
+    setRowOrder(() => {
+      const base = currentRowKeys().slice();
+      const idx = afterKey ? base.indexOf(afterKey) : -1;
+      if (idx === -1) base.push(newKey);
+      else base.splice(idx + 1, 0, newKey);
+      return base;
+    });
+  }, [currentRowKeys]);
+
+  // Drag-and-drop reordering — move the row keyed `draggedKey` to sit right
+  // where `targetKey` currently is. Works across ALL rows, not just custom
+  // ones, so the whole Matrix can be rearranged to taste.
+  const moveRow = useCallback((draggedKey, targetKey) => {
+    setRowOrder(() => {
+      const base = currentRowKeys().slice();
+      const from = base.indexOf(draggedKey);
+      const to = base.indexOf(targetKey);
+      if (from === -1 || to === -1 || from === to) return base;
+      base.splice(from, 1);
+      base.splice(to, 0, draggedKey);
+      return base;
+    });
+  }, [currentRowKeys]);
 
   const errorFiles = files.filter((f) => f.status === 'error');
   const hasData = proposals.length > 0;
@@ -331,18 +371,35 @@ export default function App() {
         <div className="rounded-2xl bg-white shadow-xl ring-1 ring-black/5 overflow-hidden">
           <div className="px-5 sm:px-8 pt-6 pb-5 border-b border-slate-100 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-500">{meta.eyebrow}</div>
+              <div className="text-sm font-bold uppercase tracking-[0.2em] text-cobalt-500">{meta.eyebrow}</div>
               <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{meta.title}</h1>
               <p className="text-sm text-slate-500 mt-0.5">{meta.subtitle}</p>
             </div>
-            {!isArchive && (
-              <label title="Open a comparison you saved earlier (.json)"
-                className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium ring-1 bg-white text-teal-700 ring-teal-200 hover:bg-teal-50 cursor-pointer transition-colors shrink-0">
-                Open
-                <input type="file" accept="application/json,.json" className="hidden"
-                  onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
-              </label>
-            )}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {hasData && !isArchive && (
+                <div className="inline-flex rounded-lg ring-1 ring-slate-200 bg-white overflow-hidden text-sm">
+                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'overview' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('overview')}>Overview</button>
+                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'bestfit' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('bestfit')}>Best Fit</button>
+                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'matrix' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('matrix')}>Matrix</button>
+                </div>
+              )}
+              {hasData && !isArchive && (
+                <button
+                  onClick={() => setView('proposal')}
+                  title="Generate a client-ready recommendation document"
+                  className={'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ' + (view === 'proposal' ? 'bg-teal-700 text-white' : 'bg-teal-600 text-white hover:bg-teal-700')}>
+                  Generate a Proposal
+                </button>
+              )}
+              {!isArchive && (
+                <label title="Open a comparison you saved earlier (.json)"
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium ring-1 bg-white text-teal-700 ring-teal-200 hover:bg-teal-50 cursor-pointer transition-colors shrink-0">
+                  Open
+                  <input type="file" accept="application/json,.json" className="hidden"
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
+                </label>
+              )}
+            </div>
           </div>
 
           <div className="px-5 sm:px-8 py-6">
@@ -352,7 +409,7 @@ export default function App() {
                   <div className="mb-3 flex items-center gap-3">
                     <button onClick={() => setView('archive')} className="text-sm text-cobalt-600 hover:underline">← Back to Archive</button>
                   </div>
-                  <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [])} />
+                  <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [], archiveItem.rowOrder || [])} />
                 </>
               ) : (
                 <ArchiveView
@@ -469,6 +526,7 @@ export default function App() {
                         onAddRow={addCustomRow}
                         onRenameRow={renameCustomRow}
                         onRemoveRow={removeCustomRow}
+                        onMoveRow={moveRow}
                         onRemoveEmptyRows={removeEmptyCustomRows}
                         emptyRowCount={emptyCustomRowCount}
                       />

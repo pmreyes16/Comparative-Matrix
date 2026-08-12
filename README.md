@@ -147,7 +147,7 @@ src/
   App.jsx
   index.css
   assets/
-    howden-logo.gif
+    Howden Logo cobalt blue.png
   lib/
     money.js        # shared money parse/format (full-decimal precision)
     schema.js       # empty proposal shape + quote-lapse check
