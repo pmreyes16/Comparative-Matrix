@@ -114,6 +114,19 @@ export default function App() {
     );
   }, []);
 
+  // Matrix column headers — the insurer name doesn't always get detected
+  // cleanly from the slip, so it's editable straight from the header.
+  const renameInsurer = useCallback((propId, name) => {
+    setProposals((prev) =>
+      prev.map((p) => {
+        if (p.id !== propId) return p;
+        const insurers = p.insurers.length ? p.insurers.slice() : [{ name: '', percentageShare: '', logoUrl: '' }];
+        insurers[0] = { ...insurers[0], name };
+        return { ...p, insurers };
+      })
+    );
+  }, []);
+
   // Apply a manual edit (typed figure) to one proposal; Matrix/Overview recompute.
   const editProposal = useCallback((id, updater) => {
     setProposals((prev) => prev.map((p) => (p.id === id ? updater(p) : p)));
@@ -529,6 +542,7 @@ export default function App() {
                         onMoveRow={moveRow}
                         onRemoveEmptyRows={removeEmptyCustomRows}
                         emptyRowCount={emptyCustomRowCount}
+                        onRenameInsurer={renameInsurer}
                       />
                     )}
                   </>

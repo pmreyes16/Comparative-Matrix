@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { isDeleted } from '../lib/matrix.js';
 import { exportMatrixToXlsx, exportMatrixToPdf, toast } from '../lib/exportMatrix.js';
 
@@ -60,6 +60,40 @@ function MatrixEditableCell({ cell, onCommit }) {
           {cell.v}
         </span>
       )}
+      <span className="ml-1 align-top text-[10px] text-slate-300 group-hover:text-cobalt-500 no-print">✎</span>
+    </button>
+  );
+}
+
+/** Click-to-edit insurer name in a column header — extraction doesn't always catch it. */
+function EditableColumnName({ name, big, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => { setEditing(false); onRename(val); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
+        placeholder="Insurer name"
+        className={'w-full rounded border border-cobalt-500 px-1.5 py-1 outline-none bg-white ' + (big ? 'text-sm font-bold' : 'text-sm font-semibold')}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      title="Click to edit insurer name"
+      onClick={() => { setVal(name || ''); setEditing(true); }}
+      className="group text-left w-full"
+    >
+      <span className={big ? 'font-bold text-slate-800 leading-tight' : 'font-semibold text-slate-700 leading-tight'}>
+        {name || <span className="text-slate-400 italic font-normal">Click to name insurer</span>}
+      </span>
       <span className="ml-1 align-top text-[10px] text-slate-300 group-hover:text-cobalt-500 no-print">✎</span>
     </button>
   );
@@ -172,12 +206,33 @@ function MatrixArchiveIcon() {
  * column + header, section grouping and a per-insurer footnotes area. Pass
  * `onEdit` to make every cell click-to-edit; omit it for a read-only render.
  */
-export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onMoveRow, onRemoveEmptyRows, emptyRowCount }) {
+export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onMoveRow, onRemoveEmptyRows, emptyRowCount, onRenameInsurer }) {
   const hasBaseline = !!matrix.baseline;
   const cols = matrix.columns;
   const editable = typeof onEdit === 'function';
   const [busy, setBusy] = useState(null);
   const [dragRowKey, setDragRowKey] = useState(null);
+
+  // Rows that share a `mergeGroup` (e.g. every clause row) merge their label
+  // cell into one, spanning the group and vertically centered — like the
+  // merged label cell on the source slip. Computed from the CURRENT row
+  // order (not baked in at build time) so a drag-reorder that splits or
+  // rejoins a group still merges exactly what's contiguous on screen.
+  const rowMerge = useMemo(() => {
+    const span = new Array(matrix.rows.length).fill(1);
+    const hidden = new Array(matrix.rows.length).fill(false);
+    let i = 0;
+    while (i < matrix.rows.length) {
+      const g = matrix.rows[i].mergeGroup;
+      if (!g) { i++; continue; }
+      let j = i + 1;
+      while (j < matrix.rows.length && matrix.rows[j].mergeGroup === g) j++;
+      span[i] = j - i;
+      for (let k = i + 1; k < j; k++) hidden[k] = true;
+      i = j;
+    }
+    return { span, hidden };
+  }, [matrix.rows]);
 
   // Run an action with a disabled + spinner state; catch failures → error toast.
   const run = async (kind, fn) => {
@@ -282,12 +337,20 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-cobalt-600">
                     {matrix.baseline.role || 'Proposed'}
                   </div>
-                  <div className="font-bold text-slate-800 leading-tight">{matrix.baseline.name}</div>
+                  {editable && onRenameInsurer ? (
+                    <EditableColumnName big name={matrix.baseline.name} onRename={(v) => onRenameInsurer(matrix.baseline.id, v)} />
+                  ) : (
+                    <div className="font-bold text-slate-800 leading-tight">{matrix.baseline.name}</div>
+                  )}
                 </th>
               )}
               {cols.map((c) => (
                 <th key={c.id} className="sticky top-0 z-20 bg-slate-100 px-3 py-3 text-left border-b border-slate-200 w-64 align-bottom">
-                  <span className="font-semibold text-slate-700 leading-tight">{c.name}</span>
+                  {editable && onRenameInsurer ? (
+                    <EditableColumnName name={c.name} onRename={(v) => onRenameInsurer(c.id, v)} />
+                  ) : (
+                    <span className="font-semibold text-slate-700 leading-tight">{c.name}</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -310,27 +373,35 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                       : undefined
                   }
                 >
-                  <th className={'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' + rowTop + (row.total ? ' bg-slate-50' : '')}>
-                    {editable ? (
-                      <RowLabel
-                        row={row}
-                        staticLabel={row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
-                        dragging={dragRowKey === row.key}
-                        onRename={(text) => onRenameRow && onRenameRow(row.rowId, text)}
-                        onRemove={() => onRemoveRow && onRemoveRow(row.rowId)}
-                        onInsertBelow={() => onAddRow && onAddRow(row.key)}
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = 'move';
-                          // Firefox won't start a native drag at all unless data is set here.
-                          e.dataTransfer.setData('text/plain', row.key);
-                          setDragRowKey(row.key);
-                        }}
-                        onDragEnd={() => setDragRowKey(null)}
-                      />
-                    ) : (
-                      row.field || (row.subLabel && !hasBaseline ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')
-                    )}
-                  </th>
+                  {!rowMerge.hidden[ri] && (
+                    <th
+                      rowSpan={rowMerge.span[ri]}
+                      className={
+                        'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' +
+                        rowTop + (row.total ? ' bg-slate-50' : '') + (rowMerge.span[ri] > 1 ? ' align-middle' : '')
+                      }
+                    >
+                      {editable ? (
+                        <RowLabel
+                          row={row}
+                          staticLabel={row.field || (row.subLabel ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
+                          dragging={dragRowKey === row.key}
+                          onRename={(text) => onRenameRow && onRenameRow(row.rowId, text)}
+                          onRemove={() => onRemoveRow && onRemoveRow(row.rowId)}
+                          onInsertBelow={() => onAddRow && onAddRow(row.key)}
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move';
+                            // Firefox won't start a native drag at all unless data is set here.
+                            e.dataTransfer.setData('text/plain', row.key);
+                            setDragRowKey(row.key);
+                          }}
+                          onDragEnd={() => setDragRowKey(null)}
+                        />
+                      ) : (
+                        row.field || (row.subLabel ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')
+                      )}
+                    </th>
+                  )}
                   {hasBaseline && (
                     <td className={'px-3 py-2 bg-cobalt-50/60 text-slate-800 ' + rowTop}>
                       {editable ? (

@@ -58,6 +58,7 @@ export function buildMatrixFromProposals(proposals, baselineId, customRows, rowO
       subLabel: opts.subLabel,
       custom: !!opts.custom,
       rowId: opts.rowId,
+      mergeGroup: opts.mergeGroup,
     };
   }
 
@@ -114,16 +115,34 @@ export function buildMatrixFromProposals(proposals, baselineId, customRows, rowO
     })
   );
 
-  // Clauses & Warranties — the FULL numbered list in one box per insurer, just
-  // like the quotation slip (every wording captured, numbered).
-  const numberedClauses = (p) =>
-    (p.clausesAndWarranties || [])
-      .map((c, i) => (/^\s*\d+[.)]/.test(String(c)) ? String(c).trim() : i + 1 + '. ' + String(c).trim()))
-      .join('\n');
+  rows.push(makeRow('PREMIUM PAYMENT TERMS', (p) => p.premiumPaymentTerms, { key: 'premiumPaymentTerms' }));
+
+  // Clauses & Warranties — ONE ROW PER NUMBERED CLAUSE (not one block of text
+  // per insurer), so every insurer's clause #1 sits next to every other
+  // insurer's clause #1, #2 next to #2, and so on — line-by-line comparison
+  // instead of reading two long paragraphs side by side. The clause text
+  // already carries its own "N." prefix, so the label column doesn't repeat
+  // it per row — instead it merges into one "CLAUSES & WARRANTIES" cell that
+  // spans every clause row, like the merged label cell on the source slip.
+  // (Every row carries the same field text, not just the first — MatrixView
+  // merges whichever contiguous run ends up first after a drag reorder.)
+  const clauseText = (p, i) => {
+    const c = (p.clausesAndWarranties || [])[i];
+    if (!c) return '';
+    return /^\s*\d+[.)]/.test(String(c)) ? String(c).trim() : i + 1 + '. ' + String(c).trim();
+  };
+  const maxClauses = list.reduce((m, p) => Math.max(m, (p.clausesAndWarranties || []).length), 0);
+  for (let i = 0; i < Math.max(maxClauses, 1); i++) {
+    rows.push(
+      makeRow('CLAUSES & WARRANTIES', (p) => clauseText(p, i), {
+        newField: i === 0,
+        key: 'clause:' + i,
+        mergeGroup: 'clauses',
+      })
+    );
+  }
 
   const tail = [
-    ['PREMIUM PAYMENT TERMS', (p) => p.premiumPaymentTerms, 'premiumPaymentTerms'],
-    ['CLAUSES & WARRANTIES', numberedClauses, 'clauses'],
     ['LEAD INSURER CLAUSE', (p) => p.leadInsurerClause, 'leadInsurerClause'],
     ['SEVERAL LIABILITY CLAUSE', (p) => p.severalLiabilityClause, 'severalLiabilityClause'],
     ['CLAIMS INFORMATION', (p) => p.claimsInformation, 'claimsInformation'],
