@@ -1,14 +1,41 @@
-import React, { useState } from 'react';
+import React from 'react';
 import howdenLogo from '../assets/Howden Logo cobalt blue.png';
 
 function Icon({ children }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px] shrink-0" aria-hidden="true">
       {children}
     </svg>
   );
 }
 
+const IconOverview = () => (
+  <Icon>
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+    <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+  </Icon>
+);
+const IconBestFit = () => (
+  <Icon>
+    <path d="M4 20h16" />
+    <path d="M7 16v-5M12 16V6M17 16v-8" />
+  </Icon>
+);
+const IconMatrix = () => (
+  <Icon>
+    <rect x="3.5" y="4" width="17" height="16" rx="2" />
+    <path d="M3.5 9.5h17M9.5 4v16" />
+  </Icon>
+);
+const IconProposal = () => (
+  <Icon>
+    <path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+    <path d="M15 3v4h4" />
+    <path d="m9 14 2 2 4-4" />
+  </Icon>
+);
 const IconDocControl = () => (
   <Icon>
     <path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.6l1.8 2H18.8A2.2 2.2 0 0 1 21 9.2v7.6A2.2 2.2 0 0 1 18.8 19H5.2A2.2 2.2 0 0 1 3 16.8V7.2Z" />
@@ -22,12 +49,27 @@ const IconArchive = () => (
   </Icon>
 );
 
-const NAV_ITEMS = [
-  { key: 'doccontrol', label: 'Document Control', requiresData: false, Icon: IconDocControl },
-  { key: 'archive', label: 'Archive', requiresData: false, Icon: IconArchive },
+const NAV_GROUPS = [
+  {
+    label: 'Compare',
+    items: [
+      { key: 'overview', label: 'Overview', requiresData: false, Icon: IconOverview },
+      { key: 'bestfit', label: 'Best Fit', requiresData: true, Icon: IconBestFit },
+      { key: 'matrix', label: 'Matrix', requiresData: true, Icon: IconMatrix },
+      { key: 'proposal', label: 'Proposal', requiresData: true, Icon: IconProposal },
+    ],
+  },
+  {
+    label: 'Library',
+    items: [
+      { key: 'doccontrol', label: 'Document Control', requiresData: false, Icon: IconDocControl },
+      { key: 'archive', label: 'Archive', requiresData: false, Icon: IconArchive },
+    ],
+  },
 ];
+const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
-function NavButton({ item, active, disabled, onClick, compact, expanded }) {
+function NavButton({ item, active, disabled, onClick, compact }) {
   const { Icon: ItemIcon, label } = item;
   return (
     <button
@@ -35,92 +77,88 @@ function NavButton({ item, active, disabled, onClick, compact, expanded }) {
       disabled={disabled}
       title={disabled ? 'Upload proposals first' : label}
       onClick={onClick}
+      aria-current={active ? 'page' : undefined}
       className={
-        'group flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ' +
-        (compact ? 'px-3 py-2 shrink-0' : 'w-full px-3 py-2.5') +
+        'relative flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ' +
+        (compact ? 'px-3 py-1.5 shrink-0' : 'w-full px-3 py-2') +
         ' ' +
         (disabled
-          ? 'text-white/25 cursor-not-allowed'
+          ? 'text-slate-300 cursor-not-allowed'
           : active
-          ? 'bg-gradient-to-r from-teal-400 to-cobalt-500 text-white shadow-sm'
-          : 'text-cobalt-100/80 hover:bg-white/10 hover:text-white')
+          ? 'bg-cobalt-50 text-cobalt-600'
+          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
       }
     >
+      {!compact && active && <span className="absolute -left-3 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-cobalt-500" aria-hidden="true" />}
       <ItemIcon />
-      {!compact && expanded && <span className="truncate">{label}</span>}
-      {compact && <span className="truncate text-[13px]">{label}</span>}
+      <span className="truncate">{label}</span>
     </button>
   );
 }
 
 /**
- * Left navigation rail (desktop, lg+) plus a horizontal fallback strip
- * (below lg) — same NAV_ITEMS drive both so the two stay in sync.
+ * Left navigation (desktop, lg+) plus a sticky top bar with a horizontal
+ * strip (below lg) — the same NAV_GROUPS drive both so the two stay in sync.
  */
 export default function Sidebar({ view, setView, hasData, isArchive }) {
   const isActive = (key) => (key === 'archive' ? isArchive : view === key);
-  // Expansion is tracked in JS (not pure CSS :hover) so a nav click can force
-  // an immediate collapse — otherwise the expanded rail keeps overlaying page
-  // content (e.g. the Matrix's "Add a row" button sits right under it) for as
-  // long as the pointer happens to still be inside its wider hover box.
-  const [open, setOpen] = useState(false);
-  const go = (key) => { setView(key); setOpen(false); };
+  const go = (key) => setView(key);
 
   return (
     <>
-      {/* Desktop rail — collapses to an icon-only strip and expands on hover so it doesn't permanently take up screen width */}
-      <aside
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        className={
-          'hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 bg-cobalt-900 px-3 py-5 z-30 overflow-hidden transition-[width] duration-150 ease-in-out ' +
-          (open ? 'lg:w-64 lg:shadow-2xl' : 'lg:w-16')
-        }
-      >
-        <div className="flex items-center gap-2.5 px-1.5 mb-6 h-8">
-          {open ? (
-            <div className="flex items-center gap-2.5 min-w-0">
-              <img src={howdenLogo} alt="Howden" className="h-8 w-auto shrink-0" />
-              <div className="min-w-0 border-l border-white/15 pl-2.5 whitespace-nowrap">
-                <div className="text-[12px] font-bold uppercase tracking-wide text-teal-400 leading-tight">HowdenPH-Apps</div>
+      <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 bg-white border-r border-slate-200/80 z-30">
+        <div className="h-16 flex items-center gap-3 px-6 border-b border-slate-100">
+          <img src={howdenLogo} alt="Howden" className="h-7 w-auto shrink-0" />
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
+          {NAV_GROUPS.map((g) => (
+            <div key={g.label}>
+              <div className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{g.label}</div>
+              <div className="space-y-0.5">
+                {g.items.map((item) => (
+                  <NavButton
+                    key={item.key}
+                    item={item}
+                    active={isActive(item.key)}
+                    disabled={item.requiresData && !hasData}
+                    onClick={() => go(item.key)}
+                  />
+                ))}
               </div>
             </div>
-          ) : (
-            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/10 text-teal-400 font-bold text-sm shrink-0" aria-hidden="true">H</div>
-          )}
+          ))}
+        </nav>
+
+        <div className="m-3 rounded-xl bg-slate-50 border border-slate-200/80 p-3">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500" aria-hidden="true" />
+            Processed in your browser
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+            Auto-extracted for comparison — always verify against the original slip.
+          </p>
         </div>
-        <nav className="flex-1 space-y-1">
+      </aside>
+
+      {/* Mobile / narrow-screen top bar */}
+      <div className="lg:hidden sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200/80">
+        <div className="flex items-center gap-3 px-4 sm:px-6 h-14">
+          <img src={howdenLogo} alt="Howden" className="h-6 w-auto shrink-0" />
+        </div>
+        <nav className="flex items-center gap-1 overflow-x-auto px-3 sm:px-5 pb-2">
           {NAV_ITEMS.map((item) => (
             <NavButton
               key={item.key}
               item={item}
               active={isActive(item.key)}
               disabled={item.requiresData && !hasData}
-              onClick={() => go(item.key)}
-              expanded={open}
+              onClick={() => setView(item.key)}
+              compact
             />
           ))}
         </nav>
-        {open && (
-          <div className="text-[11px] text-cobalt-200/50 px-1.5 pt-3 border-t border-white/10 whitespace-nowrap">
-            Auto-extracted for comparison — always verify against the original slip.
-          </div>
-        )}
-      </aside>
-
-      {/* Mobile / narrow-screen strip */}
-      <nav className="lg:hidden -mx-4 sm:-mx-6 mb-4 px-4 sm:px-6 py-2 bg-cobalt-900 flex items-center gap-1.5 overflow-x-auto">
-        {NAV_ITEMS.map((item) => (
-          <NavButton
-            key={item.key}
-            item={item}
-            active={isActive(item.key)}
-            disabled={item.requiresData && !hasData}
-            onClick={() => setView(item.key)}
-            compact
-          />
-        ))}
-      </nav>
+      </div>
     </>
   );
 }

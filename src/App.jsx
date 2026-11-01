@@ -363,9 +363,9 @@ export default function App() {
   const isArchive = view === 'archive' || view === 'archiveItem';
 
   const baselineSelect = (
-    <label className="inline-flex items-center gap-1.5 text-slate-500">
-      Benchmark against:
-      <select value={baselineId} onChange={(e) => setBaselineId(e.target.value)} className="text-[12px] rounded-md ring-1 ring-slate-200 px-2 py-1">
+    <label className="inline-flex items-center gap-2 text-slate-500">
+      <span className="text-[12px] font-medium">Benchmark against</span>
+      <select value={baselineId} onChange={(e) => setBaselineId(e.target.value)} className="field field-sm py-1">
         <option value="none">No baseline (show all values)</option>
         {shown.map((p) => (
           <option key={p.id} value={p.id}>{(p.insurers[0] && p.insurers[0].name) || p.fileName}</option>
@@ -377,189 +377,209 @@ export default function App() {
   const meta = VIEW_META[isArchive ? (view === 'archiveItem' ? 'archiveItem' : 'archive') : view] || VIEW_META.overview;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cobalt-900 via-cobalt-800 to-cobalt-500 lg:pl-16">
-      <div className="w-full max-w-[104rem] mx-auto px-4 sm:px-6 xl:px-10 py-6 lg:py-8">
-        <Sidebar view={view} setView={setView} hasData={hasData} isArchive={isArchive} />
+    <div className="min-h-screen bg-canvas lg:pl-64">
+      <Sidebar view={view} setView={setView} hasData={hasData} isArchive={isArchive} />
 
-        <div className="rounded-2xl bg-white shadow-xl ring-1 ring-black/5 overflow-hidden">
-          <div className="px-5 sm:px-8 pt-6 pb-5 border-b border-slate-100 flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="text-sm font-bold uppercase tracking-[0.2em] text-cobalt-500">{meta.eyebrow}</div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{meta.title}</h1>
-              <p className="text-sm text-slate-500 mt-0.5">{meta.subtitle}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {hasData && !isArchive && (
-                <div className="inline-flex rounded-lg ring-1 ring-slate-200 bg-white overflow-hidden text-sm">
-                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'overview' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('overview')}>Overview</button>
-                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'bestfit' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('bestfit')}>Best Fit</button>
-                  <button className={'px-3 py-1.5 transition-colors ' + (view === 'matrix' ? 'bg-cobalt-600 text-white' : 'text-slate-600 hover:bg-slate-50')} onClick={() => setView('matrix')}>Matrix</button>
+      <div className="w-full max-w-[104rem] mx-auto px-4 sm:px-6 xl:px-10">
+        <header className="pt-6 lg:pt-9 pb-6 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="kicker text-cobalt-500">{meta.eyebrow}</div>
+            <h1 className="mt-1 text-2xl sm:text-[28px] font-bold tracking-tight text-slate-900 leading-tight">{meta.title}</h1>
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl">{meta.subtitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {!isArchive && (
+              <label title="Open a comparison you saved earlier (.json)" className="btn btn-secondary cursor-pointer">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.6l1.8 2H18.8A2.2 2.2 0 0 1 21 9.2v7.6A2.2 2.2 0 0 1 18.8 19H5.2A2.2 2.2 0 0 1 3 16.8V7.2Z" />
+                </svg>
+                Open
+                <input type="file" accept="application/json,.json" className="hidden"
+                  onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
+              </label>
+            )}
+            {hasData && !isArchive && view !== 'proposal' && (
+              <button
+                onClick={() => setView('proposal')}
+                title="Generate a client-ready recommendation document"
+                className="btn btn-primary">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+                </svg>
+                Generate a Proposal
+              </button>
+            )}
+          </div>
+        </header>
+
+        <main className="pb-10">
+          {isArchive ? (
+            view === 'archiveItem' && archiveItem ? (
+              <>
+                <div className="mb-4">
+                  <button onClick={() => setView('archive')} className="btn btn-ghost btn-sm -ml-2.5">← Back to Archive</button>
+                </div>
+                <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [], archiveItem.rowOrder || [])} />
+              </>
+            ) : (
+              <ArchiveView
+                list={archiveList}
+                onView={(rec) => { setArchiveItem(rec); setView('archiveItem'); }}
+                onRestore={restoreFromArchive}
+                onDelete={deleteArchive}
+                onReload={() => setArchiveList(loadArchive())}
+              />
+            )
+          ) : (
+            <>
+              <UploadZone onFiles={addFiles} compact={hasData} />
+
+              {!hasData && files.length === 0 && (
+                <div className="-mt-1 mb-5 text-center">
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-sm link">
+                    ↩ Open a comparison you saved earlier (.json)
+                    <input type="file" accept="application/json,.json" className="hidden"
+                      onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
+                  </label>
                 </div>
               )}
-              {hasData && !isArchive && (
-                <button
-                  onClick={() => setView('proposal')}
-                  title="Generate a client-ready recommendation document"
-                  className={'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ' + (view === 'proposal' ? 'bg-teal-700 text-white' : 'bg-teal-600 text-white hover:bg-teal-700')}>
-                  Generate a Proposal
-                </button>
-              )}
-              {!isArchive && (
-                <label title="Open a comparison you saved earlier (.json)"
-                  className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium ring-1 bg-white text-teal-700 ring-teal-200 hover:bg-teal-50 cursor-pointer transition-colors shrink-0">
-                  Open
-                  <input type="file" accept="application/json,.json" className="hidden"
-                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
-                </label>
-              )}
-            </div>
-          </div>
 
-          <div className="px-5 sm:px-8 py-6">
-            {isArchive ? (
-              view === 'archiveItem' && archiveItem ? (
-                <>
-                  <div className="mb-3 flex items-center gap-3">
-                    <button onClick={() => setView('archive')} className="text-sm text-cobalt-600 hover:underline">← Back to Archive</button>
-                  </div>
-                  <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [], archiveItem.rowOrder || [])} />
-                </>
-              ) : (
-                <ArchiveView
-                  list={archiveList}
-                  onView={(rec) => { setArchiveItem(rec); setView('archiveItem'); }}
-                  onRestore={restoreFromArchive}
-                  onDelete={deleteArchive}
-                  onReload={() => setArchiveList(loadArchive())}
-                />
-              )
-            ) : (
-              <>
-                <UploadZone onFiles={addFiles} />
-
-                {!hasData && files.length === 0 && (
-                  <div className="-mt-2 mb-4 text-center">
-                    <label className="inline-flex items-center gap-1.5 cursor-pointer text-sm text-cobalt-500 font-medium hover:underline">
-                      ↩ Open a comparison you saved earlier (.json)
-                      <input type="file" accept="application/json,.json" className="hidden"
-                        onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openComparison(f); }} />
-                    </label>
-                  </div>
-                )}
-
-                {restorable && !hasData && files.length === 0 && (
-                  <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-cobalt-500/5 ring-1 ring-cobalt-500/25 px-3 py-2 text-sm text-slate-700">
+              {restorable && !hasData && files.length === 0 && (
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white border border-cobalt-200 shadow-card px-4 py-3 text-sm text-slate-700">
+                  <span className="flex items-center gap-3">
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-cobalt-50 text-cobalt-500 shrink-0" aria-hidden="true">↺</span>
                     <span>
                       You have a saved comparison — <strong>{restorable.proposals.length}</strong> proposal{restorable.proposals.length !== 1 ? 's' : ''}
                       {restorable.savedAt ? ', saved ' + new Date(restorable.savedAt).toLocaleString() : ''}.
                     </span>
-                    <span className="flex gap-3 shrink-0">
-                      <button className="text-cobalt-600 font-medium hover:underline" onClick={() => { restoreSnapshot(restorable); setRestorable(null); }}>Restore</button>
-                      <button className="text-slate-400 hover:underline" onClick={() => setRestorable(null)}>Dismiss</button>
-                    </span>
-                  </div>
-                )}
+                  </span>
+                  <span className="flex gap-2 shrink-0">
+                    <button className="btn btn-ghost btn-sm" onClick={() => setRestorable(null)}>Dismiss</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => { restoreSnapshot(restorable); setRestorable(null); }}>Restore</button>
+                  </span>
+                </div>
+              )}
 
-                <FileChips files={files} onRemove={removeFile} />
+              <FileChips files={files} onRemove={removeFile} />
 
-                {errorFiles.length > 0 && (
-                  <div className="mb-4 rounded-lg bg-poppy-50 ring-1 ring-poppy-200 p-3">
-                    <div className="text-sm font-medium text-poppy-800 mb-1">Some files couldn't be read</div>
-                    <ul className="text-sm text-poppy-700 list-disc list-inside">
-                      {errorFiles.map((f) => (
-                        <li key={f.id}>{f.name} — {f.error || 'could not be parsed (it may be corrupted, password-protected, or an unsupported format).'}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+              {errorFiles.length > 0 && (
+                <div className="mb-5 rounded-xl bg-poppy-50 border border-poppy-200 px-4 py-3">
+                  <div className="text-sm font-semibold text-poppy-800 mb-1">Some files couldn't be read</div>
+                  <ul className="text-sm text-poppy-700 list-disc list-inside space-y-0.5">
+                    {errorFiles.map((f) => (
+                      <li key={f.id}>{f.name} — {f.error || 'could not be parsed (it may be corrupted, password-protected, or an unsupported format).'}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-                {justSaved && (
-                  <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-teal-50 ring-1 ring-teal-200 px-3 py-2 text-sm text-teal-800">
-                    <span>Saved ✓ — downloaded <strong>{justSaved.name}</strong>. Next time, use <strong>Open</strong> on the start screen to pick up where you left off.{justSaved.archived && <span className="text-teal-800/70"> Also kept in this browser’s Archive.</span>}</span>
-                    <span className="flex gap-3 shrink-0">
-                      {justSaved.archived && <button className="text-teal-700 font-medium hover:underline" onClick={() => setView('archive')}>View in Archive</button>}
-                      <button className="text-slate-400 hover:underline" onClick={() => setJustSaved(null)}>Dismiss</button>
-                    </span>
-                  </div>
-                )}
+              {justSaved && (
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-teal-50 border border-teal-200 px-4 py-3 text-sm text-teal-900">
+                  <span className="flex items-start gap-2.5">
+                    <span className="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] font-bold shrink-0" aria-hidden="true">✓</span>
+                    <span>Saved — downloaded <strong>{justSaved.name}</strong>. Next time, use <strong>Open</strong> to pick up where you left off.{justSaved.archived && <span className="text-teal-800/70"> Also kept in this browser’s Archive.</span>}</span>
+                  </span>
+                  <span className="flex gap-2 shrink-0">
+                    <button className="btn btn-ghost btn-sm" onClick={() => setJustSaved(null)}>Dismiss</button>
+                    {justSaved.archived && <button className="btn btn-accent btn-sm" onClick={() => setView('archive')}>View in Archive</button>}
+                  </span>
+                </div>
+              )}
 
-                {view === 'doccontrol' ? (
-                  <DocumentControlView
-                    proposals={shown}
-                    templateMeta={templateMeta}
-                    onUploadTemplate={uploadTemplate}
-                    onRemoveTemplate={removeTemplate}
-                  />
-                ) : !hasData ? (
-                  files.length === 0 && (
-                    <div className="text-center text-slate-400 py-16">
-                      <svg className="mx-auto mb-3 h-12 w-12 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {view === 'doccontrol' ? (
+                <DocumentControlView
+                  proposals={shown}
+                  templateMeta={templateMeta}
+                  onUploadTemplate={uploadTemplate}
+                  onRemoveTemplate={removeTemplate}
+                />
+              ) : !hasData ? (
+                files.length === 0 && (
+                  <div className="card px-6 py-14 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-cobalt-50 text-cobalt-500">
+                      <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
                         <path d="M15 3v4h4" />
                         <path d="M8 13h7M8 16h7M8 10h3" />
                       </svg>
-                      <p className="text-sm">No proposals yet. Upload two or more quotation slips to start comparing.</p>
                     </div>
-                  )
-                ) : view === 'proposal' ? (
-                  <ProposalView proposals={shown} onBack={() => setView('overview')} />
-                ) : (
-                  <>
-                    <Controls
-                      view={view}
-                      sortKey={sortKey}
-                      setSortKey={setSortKey}
-                      policyTypes={policyTypes}
-                      policyFilter={policyFilter}
-                      setPolicyFilter={setPolicyFilter}
-                      premiumBounds={premiumBounds}
-                      premiumMax={premiumMax}
-                      setPremiumMax={setPremiumMax}
-                      clauseKeyword={clauseKeyword}
-                      setClauseKeyword={setClauseKeyword}
-                      search={search}
-                      setSearch={setSearch}
-                      onlyDiff={onlyDiff}
-                      setOnlyDiff={setOnlyDiff}
+                    <div className="card-title">No proposals yet</div>
+                    <p className="text-sm text-slate-500 mt-1">Upload two or more quotation slips to start comparing.</p>
+                    <div className="mt-8 grid gap-3 sm:grid-cols-3 max-w-3xl mx-auto text-left">
+                      {[
+                        ['1', 'Upload slips', 'PDF, Excel or Word quotation slips from each insurer.'],
+                        ['2', 'Review & compare', 'Overview, Best Fit ranking and an editable Matrix.'],
+                        ['3', 'Recommend', 'Export the Matrix or generate a client-ready proposal.'],
+                      ].map(([n, t, d]) => (
+                        <div key={n} className="rounded-xl bg-slate-50 border border-slate-200/80 p-4">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white border border-slate-200 text-[12px] font-semibold text-cobalt-500 tnum">{n}</span>
+                            <span className="text-sm font-semibold text-slate-800">{t}</span>
+                          </div>
+                          <p className="mt-1.5 text-[12px] text-slate-500 leading-relaxed">{d}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              ) : view === 'proposal' ? (
+                <ProposalView proposals={shown} onBack={() => setView('overview')} />
+              ) : (
+                <>
+                  <Controls
+                    view={view}
+                    sortKey={sortKey}
+                    setSortKey={setSortKey}
+                    policyTypes={policyTypes}
+                    policyFilter={policyFilter}
+                    setPolicyFilter={setPolicyFilter}
+                    premiumBounds={premiumBounds}
+                    premiumMax={premiumMax}
+                    setPremiumMax={setPremiumMax}
+                    clauseKeyword={clauseKeyword}
+                    setClauseKeyword={setClauseKeyword}
+                    search={search}
+                    setSearch={setSearch}
+                    onlyDiff={onlyDiff}
+                    setOnlyDiff={setOnlyDiff}
+                  />
+
+                  {shown.length === 0 ? (
+                    <div className="card text-center text-slate-500 py-12 text-sm">No proposals match the current filters.</div>
+                  ) : view === 'overview' ? (
+                    <Overview proposals={shown} onView={setView} />
+                  ) : view === 'bestfit' ? (
+                    <BestFit proposals={shown} />
+                  ) : (
+                    <MatrixView
+                      matrix={builtMatrix}
+                      controls={baselineSelect}
+                      onEdit={editMatrixCell}
+                      onSave={saveComparison}
+                      onArchive={() => setView('archive')}
+                      onAddRow={addCustomRow}
+                      onRenameRow={renameCustomRow}
+                      onRemoveRow={removeCustomRow}
+                      onMoveRow={moveRow}
+                      onRemoveEmptyRows={removeEmptyCustomRows}
+                      emptyRowCount={emptyCustomRowCount}
+                      onRenameInsurer={renameInsurer}
                     />
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </main>
 
-                    {shown.length === 0 ? (
-                      <div className="text-center text-slate-400 py-12 text-sm">No proposals match the current filters.</div>
-                    ) : view === 'overview' ? (
-                      <Overview proposals={shown} onView={setView} />
-                    ) : view === 'bestfit' ? (
-                      <BestFit proposals={shown} />
-                    ) : (
-                      <MatrixView
-                        matrix={builtMatrix}
-                        controls={baselineSelect}
-                        onEdit={editMatrixCell}
-                        onSave={saveComparison}
-                        onArchive={() => setView('archive')}
-                        onAddRow={addCustomRow}
-                        onRenameRow={renameCustomRow}
-                        onRemoveRow={removeCustomRow}
-                        onMoveRow={moveRow}
-                        onRemoveEmptyRows={removeEmptyCustomRows}
-                        emptyRowCount={emptyCustomRowCount}
-                        onRenameInsurer={renameInsurer}
-                      />
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-
-          <footer className="px-5 sm:px-8 pb-6 pt-4 border-t border-slate-100 text-[12px] text-slate-500">
-            Auto-extracted for comparison purposes. Figures are copied verbatim from each slip and may be incomplete or
-            mis-read — <strong>always verify figures against the original quotation slip before making a decision.</strong>
-            <span className="block mt-1 text-slate-400">
-              In the matrix, ✓ means the insurer matches the proposed terms; shaded cells show a deviation. Slip figures are
-              shown verbatim; analytics the app derives are labelled “computed”.
-            </span>
-          </footer>
-        </div>
+        <footer className="pb-8 pt-5 border-t border-slate-200/80 text-[12px] text-slate-500 leading-relaxed">
+          Auto-extracted for comparison purposes. Figures are copied verbatim from each slip and may be incomplete or
+          mis-read — <strong className="text-slate-700">always verify figures against the original quotation slip before making a decision.</strong>
+          <span className="block mt-1 text-slate-400">
+            In the matrix, ✓ means the insurer matches the proposed terms; shaded cells show a deviation. Slip figures are
+            shown verbatim; analytics the app derives are labelled “computed”.
+          </span>
+        </footer>
       </div>
     </div>
   );

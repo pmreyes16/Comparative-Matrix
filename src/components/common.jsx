@@ -7,7 +7,7 @@ export function Logo({ name, url, size = 40 }) {
   if (url) {
     return (
       <div
-        className="rounded-md bg-white ring-1 ring-slate-200 flex items-center justify-center overflow-hidden shrink-0"
+        className="rounded-lg bg-white ring-1 ring-slate-200 flex items-center justify-center overflow-hidden shrink-0"
         style={s}
       >
         <img src={url} alt={name + ' logo'} className="max-w-full max-h-full object-contain" />
@@ -16,7 +16,7 @@ export function Logo({ name, url, size = 40 }) {
   }
   return (
     <div
-      className={'rounded-md text-white flex items-center justify-center font-semibold shrink-0 ' + colorFor(name)}
+      className={'rounded-lg text-white flex items-center justify-center font-semibold shrink-0 shadow-sm ' + colorFor(name)}
       style={s}
     >
       {initials(name)}
@@ -34,7 +34,7 @@ export function InsurerHeader({ prop, onAssignLogo }) {
       <div className="min-w-0 flex-1">
         {multi ? (
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-400 font-medium">
+            <div className="kicker">
               Co-insurance placement
             </div>
             <ul className="mt-0.5 space-y-0.5">
@@ -54,7 +54,7 @@ export function InsurerHeader({ prop, onAssignLogo }) {
           </div>
         )}
         <button
-          className="mt-1 text-[11px] text-cobalt-600 hover:underline"
+          className="mt-1 text-[11px] link"
           onClick={() => fileRef.current && fileRef.current.click()}
         >
           Assign logo
@@ -105,17 +105,16 @@ export function Amount({ money, big }) {
 
 export function Badge({ children, tone }) {
   const tones = {
-    price: 'bg-teal-100 text-teal-800 ring-teal-200',
-    cover: 'bg-cobalt-100 text-cobalt-700 ring-cobalt-200',
-    lapse: 'bg-poppy-100 text-poppy-800 ring-poppy-200',
-    review: 'bg-rosegold-100 text-rosegold-800 ring-rosegold-200',
+    price: 'bg-teal-50 text-teal-800 ring-teal-200',
+    cover: 'bg-cobalt-50 text-cobalt-700 ring-cobalt-200',
+    lapse: 'bg-poppy-50 text-poppy-800 ring-poppy-200',
+    review: 'bg-rosegold-50 text-rosegold-800 ring-rosegold-200',
     brand: 'bg-cobalt-50 text-cobalt-700 ring-cobalt-200',
   };
   return (
     <span
       className={
-        'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ' +
-        (tones[tone] || 'bg-slate-100 text-slate-700 ring-slate-200')
+        'pill ' + (tones[tone] || 'bg-slate-50 text-slate-700 ring-slate-200')
       }
     >
       {children}
@@ -126,9 +125,9 @@ export function Badge({ children, tone }) {
 export function Section({ title, children, defaultOpen }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
-    <div className="border-t border-slate-100 pt-2">
+    <div className="border-t border-slate-100 pt-2.5">
       <button className="w-full flex items-center justify-between text-left" onClick={() => setOpen(!open)}>
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</span>
+        <span className="kicker">{title}</span>
         <span className="text-slate-400 text-xs">{open ? '▾' : '▸'}</span>
       </button>
       {open && <div className="mt-1.5 text-sm text-slate-700 space-y-1.5">{children}</div>}
@@ -139,7 +138,7 @@ export function Section({ title, children, defaultOpen }) {
 export function Field({ label, value }) {
   return (
     <div>
-      <span className="text-[11px] uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="field-label text-slate-400">{label}</span>
       <div className="text-sm text-slate-700 whitespace-pre-wrap break-words">
         {value ? value : <span className="italic text-slate-400">—</span>}
       </div>
@@ -175,7 +174,7 @@ export function EditableAmount({ money, onChange, placeholder, big }) {
           else if (e.key === 'Escape') setEditing(false);
         }}
         placeholder="e.g. 500,000.00"
-        className={'w-full mono-amt tnum rounded border border-cobalt-500 px-1.5 py-0.5 outline-none ' + (big ? 'text-lg font-bold' : 'text-sm')}
+        className={'w-full mono-amt tnum edit-input py-0.5 ' + (big ? 'text-lg font-bold' : 'text-sm')}
       />
     );
   }
@@ -208,7 +207,7 @@ export function EditableText({ value, onChange, placeholder }) {
           if (e.key === 'Enter') { e.preventDefault(); commit(); }
           else if (e.key === 'Escape') setEditing(false);
         }}
-        className="w-full text-sm rounded border border-cobalt-500 px-1.5 py-0.5 outline-none"
+        className="w-full text-sm edit-input py-0.5"
       />
     );
   }
@@ -229,7 +228,7 @@ export function SectionedAmount({ field, onChange }) {
   const addSection = () => update([...secs, { label: 'New section', money: null }]);
   const removeSection = (i) => { const n = secs.slice(); n.splice(i, 1); update(n); };
   return (
-    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200">
+    <div className="rounded-xl bg-slate-50/70 border border-slate-200 divide-y divide-slate-200">
       {secs.map((s, i) => (
         <div key={i} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
           <div className="min-w-0 flex-1">
@@ -241,7 +240,7 @@ export function SectionedAmount({ field, onChange }) {
           </div>
         </div>
       ))}
-      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] text-cobalt-600 hover:underline no-print">+ Add section</button>
+      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] font-medium text-cobalt-500 hover:bg-white transition-colors no-print">+ Add section</button>
     </div>
   );
 }
@@ -254,7 +253,7 @@ export function SectionedText({ field, onChange }) {
   const addSection = () => update([...secs, { label: 'New section', value: '' }]);
   const removeSection = (i) => { const n = secs.slice(); n.splice(i, 1); update(n); };
   return (
-    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200 overflow-hidden">
+    <div className="rounded-xl bg-slate-50/70 border border-slate-200 divide-y divide-slate-200 overflow-hidden">
       {secs.map((s, i) => (
         <div key={i} className="flex items-center gap-2 px-2.5 py-1.5">
           <div className="min-w-0 flex-1"><EditableText value={s.label} onChange={(v) => setSec(i, { label: v })} placeholder="Section label" /></div>
@@ -263,7 +262,7 @@ export function SectionedText({ field, onChange }) {
           <button type="button" onClick={() => removeSection(i)} title="Remove section" className="text-slate-300 hover:text-poppy-500 text-xs no-print">✕</button>
         </div>
       ))}
-      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] text-cobalt-600 hover:underline no-print">+ Add section</button>
+      <button type="button" onClick={addSection} className="w-full text-left px-2.5 py-1 text-[11px] font-medium text-cobalt-500 hover:bg-white transition-colors no-print">+ Add section</button>
     </div>
   );
 }
@@ -278,7 +277,7 @@ export function PremiumBlock({ premium, editable, hideTotal, onEditItem, onEditT
     return <div className="text-sm italic text-slate-400">No premium charges detected</div>;
   }
   return (
-    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 divide-y divide-slate-200 overflow-hidden">
+    <div className="rounded-xl bg-slate-50/70 border border-slate-200 divide-y divide-slate-200 overflow-hidden">
       {items.map((li, i) => (
         <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5">
           <span className="text-sm text-slate-600">{li.label}</span>
@@ -286,7 +285,7 @@ export function PremiumBlock({ premium, editable, hideTotal, onEditItem, onEditT
         </div>
       ))}
       {!hideTotal && (
-        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-100">
+        <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white">
           <span className="text-sm font-semibold text-slate-700">
             {premium && premium.total ? premium.total.label : 'TOTAL PREMIUM'}
           </span>

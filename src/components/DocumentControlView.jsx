@@ -163,35 +163,40 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
   };
 
   return (
-    <div className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
-      <div className="bg-gradient-to-r from-cobalt-900 to-cobalt-700 text-white px-5 py-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-200">Document Control</div>
-        <div className="text-lg font-bold leading-tight mt-0.5">Quotation Slip templates</div>
-        <div className="text-sm text-cobalt-100/90">{readyCount} of {DOCUMENT_CONTROL.length} templates ready</div>
+    <div className="card overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-200/80 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="kicker text-cobalt-500">Document Control</div>
+          <div className="text-lg font-bold leading-tight mt-0.5 text-slate-900">Quotation Slip templates</div>
+          <div className="text-sm text-slate-500">{readyCount} of {DOCUMENT_CONTROL.length} templates ready</div>
+        </div>
+        <div className="w-48 bar-track h-2 flex-none" aria-hidden="true">
+          <div className="h-2 rounded-full bg-teal-500 transition-[width] duration-300" style={{ width: (readyCount / DOCUMENT_CONTROL.length) * 100 + '%' }} />
+        </div>
       </div>
 
       {!persistent && (
-        <div className="px-5 py-2 bg-rosegold-50 border-b border-rosegold-200 text-[12px] text-rosegold-800">
+        <div className="px-5 py-2.5 bg-rosegold-50 border-b border-rosegold-200 text-[12px] font-medium text-rosegold-800">
           This preview can’t save permanently — uploaded templates will be lost on refresh.
         </div>
       )}
 
-      <div className="p-5 space-y-4">
+      <div className="p-5 space-y-5">
         <div
           ref={bulkDropRef}
-          onDragOver={(e) => { e.preventDefault(); bulkDropRef.current.classList.add('border-cobalt-400'); }}
-          onDragLeave={() => bulkDropRef.current.classList.remove('border-cobalt-400')}
+          onDragOver={(e) => { e.preventDefault(); bulkDropRef.current.classList.add('border-cobalt-400', 'bg-cobalt-50/60'); }}
+          onDragLeave={() => bulkDropRef.current.classList.remove('border-cobalt-400', 'bg-cobalt-50/60')}
           onDrop={(e) => {
             e.preventDefault();
-            bulkDropRef.current.classList.remove('border-cobalt-400');
+            bulkDropRef.current.classList.remove('border-cobalt-400', 'bg-cobalt-50/60');
             if (e.dataTransfer.files) handleBulkFiles(e.dataTransfer.files);
           }}
-          className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 p-4 text-center transition"
+          className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/50 px-5 py-6 text-center transition-colors"
         >
-          <p className="text-slate-600 text-sm">
+          <p className="text-slate-700 text-sm font-medium">
             Drag &amp; drop multiple templates here to save them all at once, or
           </p>
-          <label className="inline-block mt-2 cursor-pointer rounded-lg bg-cobalt-600 hover:bg-cobalt-700 text-white px-4 py-1.5 text-sm font-medium">
+          <label className="btn btn-primary mt-3 cursor-pointer">
             {bulkBusy ? 'Saving…' : 'Choose files'}
             <input
               type="file"
@@ -202,12 +207,12 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
               onChange={(e) => { handleBulkFiles(e.target.files); e.target.value = ''; }}
             />
           </label>
-          <p className="mt-2 text-[11px] text-slate-400">
+          <p className="mt-3 hint">
             Each file is matched to its line of insurance by its exact filename (e.g. “{DOCUMENT_CONTROL[0].file}”) — see
             src/data/documentControl.js for every expected name.
           </p>
           {bulkUnmatched.length > 0 && (
-            <div className="mt-2 text-left text-[12px] text-poppy-700 bg-poppy-50 ring-1 ring-poppy-200 rounded-lg p-2.5">
+            <div className="mt-3 text-left text-[12px] text-poppy-700 bg-poppy-50 border border-poppy-200 rounded-xl p-3">
               <div className="font-medium mb-1">Didn’t match a known line of insurance:</div>
               <ul className="list-disc list-inside">
                 {bulkUnmatched.map((name, i) => <li key={i}>{name}</li>)}
@@ -221,19 +226,19 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
             which ones you've uploaded without clicking through all 27. */}
         {readyRows.length > 0 && (
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="field-label">
               Ready templates ({readyRows.length})
             </span>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {readyRows.map((r) => (
                 <button
                   key={r.file}
                   onClick={() => { setSelectedFile(r.file); setConfirmRemove(false); }}
                   title={r.file}
                   className={
-                    'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium ring-1 ' +
+                    'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] font-medium ring-1 ring-inset transition-colors ' +
                     (r.file === selectedFile
-                      ? 'bg-teal-600 text-white ring-teal-600'
+                      ? 'bg-teal-600 text-white ring-teal-600 shadow-sm'
                       : 'bg-teal-50 text-teal-700 ring-teal-200 hover:bg-teal-100')
                   }
                 >
@@ -245,11 +250,11 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
         )}
 
         <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Line of insurance</span>
+          <span className="field-label">Line of insurance</span>
           <select
             value={selectedFile}
             onChange={(e) => { setSelectedFile(e.target.value); setConfirmRemove(false); }}
-            className="mt-1 w-full text-sm rounded-md ring-1 ring-slate-200 px-3 py-2"
+            className="field mt-1.5 w-full"
           >
             {DOCUMENT_CONTROL.map((r) => (
               <option key={r.file} value={r.file}>
@@ -259,8 +264,8 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
           </select>
         </label>
 
-        <div className="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-4">
-          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 text-sm">
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-5">
+          <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 text-sm">
             <div><span className="text-slate-400">Purpose:</span> <span className="text-slate-700">{row.purpose}</span></div>
             <div><span className="text-slate-400">Owner/Issuer:</span> <span className="text-slate-700">{row.owner}</span></div>
             <div><span className="text-slate-400">Control No.:</span> <span className="font-mono text-[12px] text-slate-700">{row.controlNo}</span></div>
@@ -268,27 +273,27 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
           </div>
 
           {suggestions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-3 flex flex-wrap gap-1.5">
               {suggestions.map((p) => (
-                <span key={p.id} className="inline-flex items-center rounded-full bg-cobalt-50 text-cobalt-700 ring-1 ring-cobalt-200 px-2 py-0.5 text-[11px] font-medium">
+                <span key={p.id} className="pill bg-cobalt-50 text-cobalt-700 ring-cobalt-200">
                   Suggested for {nameOf(p)}
                 </span>
               ))}
             </div>
           )}
 
-          <div className="mt-3 pt-3 border-t border-slate-200">
+          <div className="mt-4 pt-4 border-t border-slate-200">
             <div className="flex flex-wrap items-center gap-3">
               {ready ? (
-                <span className="inline-flex items-center rounded-full bg-teal-100 text-teal-800 ring-1 ring-teal-200 px-2.5 py-1 text-[12px] font-medium">
+                <span className="pill bg-teal-50 text-teal-800 ring-teal-200 py-1 text-[12px]">
                   Ready{source === 'uploaded' ? (persistent ? ' — saved' : ' — this session') : ' — built in'}
                 </span>
               ) : (
-                <span className="inline-flex items-center rounded-full bg-slate-200 text-slate-500 px-2.5 py-1 text-[12px] font-medium">
+                <span className="pill bg-white text-slate-500 ring-slate-200 py-1 text-[12px]">
                   Not added yet
                 </span>
               )}
-              <label className="text-[12px] rounded-md ring-1 ring-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 cursor-pointer text-slate-700 font-medium transition-colors">
+              <label className="btn btn-secondary btn-sm cursor-pointer">
                 {ready ? 'Replace template…' : 'Upload template…'}
                 <input type="file" accept={ACCEPT} className="hidden" onChange={handleUpload} disabled={busy} />
               </label>
@@ -296,31 +301,31 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
                 confirmRemove ? (
                   <span className="inline-flex items-center gap-2 text-[12px]">
                     <span className="text-slate-500">Remove this template?</span>
-                    <button onClick={handleRemove} disabled={busy} className="text-poppy-600 font-medium hover:underline">Yes, remove</button>
-                    <button onClick={() => setConfirmRemove(false)} className="text-slate-400 hover:underline">Cancel</button>
+                    <button onClick={handleRemove} disabled={busy} className="btn btn-danger btn-sm">Yes, remove</button>
+                    <button onClick={() => setConfirmRemove(false)} className="btn btn-ghost btn-sm">Cancel</button>
                   </span>
                 ) : (
-                  <button onClick={() => setConfirmRemove(true)} disabled={busy} className="text-[12px] text-poppy-600 hover:underline font-medium">
+                  <button onClick={() => setConfirmRemove(true)} disabled={busy} className="btn btn-danger-soft btn-sm">
                     Remove
                   </button>
                 )
               )}
-              <span className="text-[11px] text-slate-400">Accepts .docx, .xlsx or .pdf ({row.file})</span>
+              <span className="hint">Accepts .docx, .xlsx or .pdf ({row.file})</span>
             </div>
             {meta && (
-              <div className="mt-1.5 text-[11px] text-slate-400">
+              <div className="mt-2 hint">
                 {meta.name} · {formatSize(meta.size)} · uploaded {formatUploadedAt(meta.uploadedAt)}
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <select
             value={proposalId}
             onChange={(e) => setProposalId(e.target.value)}
             disabled={!ready || !list.length}
-            className="text-sm rounded-md ring-1 ring-slate-200 px-3 py-2 disabled:opacity-50 disabled:bg-slate-50 min-w-[220px]"
+            className="field min-w-[260px]"
           >
             <option value="">{list.length ? 'Fill with…' : 'Upload proposals first'}</option>
             {list.length > 0 && (
@@ -333,7 +338,7 @@ export default function DocumentControlView({ proposals, templateMeta, onUploadT
           <button
             onClick={generate}
             disabled={!ready || !proposalId || busy}
-            className="text-sm rounded-md bg-cobalt-600 hover:bg-cobalt-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 font-medium transition-colors"
+            className="btn btn-primary"
           >
             {busy ? 'Working…' : 'Generate'}
           </button>

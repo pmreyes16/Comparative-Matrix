@@ -61,12 +61,12 @@ function PieCard({ title, data }) {
     // visibly two separate charts instead of one silently vanishing when it
     // doesn't (yet) have enough comparable numeric rates to draw slices.
     return (
-      <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{title}</div>
-        <div className="h-40 flex items-center justify-center text-[12px] text-slate-400 italic">
+      <div className="card card-pad">
+        <div className="card-title mb-4">{title}</div>
+        <div className="h-40 flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-[12px] text-slate-400">
           Not enough comparable data for a chart
         </div>
-        <div className="mt-2 text-[11px] text-slate-400">
+        <div className="mt-4 hint">
           Share of combined premium rate across compared proposals — computed, not a slip figure.
         </div>
       </div>
@@ -83,18 +83,19 @@ function PieCard({ title, data }) {
   });
 
   return (
-    <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{title}</div>
+    <div className="card card-pad">
+      <div className="card-title mb-4">{title}</div>
       <div className="flex items-center gap-6 flex-wrap">
         <svg viewBox="0 0 140 140" className="w-40 h-40 shrink-0" aria-hidden="true">
           {slices.map((s, i) => (
-            <path key={i} d={s.path} fill={s.color} stroke="#fff" strokeWidth="1" />
+            <path key={i} d={s.path} fill={s.color} stroke="#fff" strokeWidth="2" />
           ))}
+          <circle cx={C} cy={C} r={R * 0.58} fill="#fff" />
         </svg>
         <div className="flex-1 min-w-[180px] space-y-1.5">
           {slices.map((s, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
               <span className="flex-1 truncate text-slate-700" title={s.name}>{s.name}</span>
               <span className="text-slate-500 tnum text-xs w-12 text-right">{s.pct.toFixed(1)}%</span>
               <span className="mono-amt tnum text-xs text-slate-800 truncate max-w-[120px]" title={s.disp}>{s.disp}</span>
@@ -102,7 +103,7 @@ function PieCard({ title, data }) {
           ))}
         </div>
       </div>
-      <div className="mt-2 text-[11px] text-slate-400">
+      <div className="mt-4 hint">
         Share of combined premium rate across compared proposals — computed, not a slip figure.
       </div>
     </div>
@@ -130,7 +131,7 @@ export default function PremiumSharePie({ proposals }) {
   const label2 = (list.map((p) => sectionRate(p, 1).label).find(Boolean)) || 'Section II';
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid gap-5 md:grid-cols-2">
       <PieCard title={`Premium rate by insurer — ${label1}`} data={section1} />
       <PieCard title={`Premium rate by insurer — ${label2}`} data={section2} />
     </div>

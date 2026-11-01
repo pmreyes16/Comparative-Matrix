@@ -72,46 +72,46 @@ export default function ArchiveView({ list, onView, onRestore, onDelete, onReloa
     }
   };
 
-  const btn = 'text-[12px] rounded-md px-2.5 py-1 ring-1 transition-colors';
+  const btn = 'btn btn-sm';
 
   return (
-    <div className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
+    <div className="card overflow-hidden">
       {/* Title band */}
-      <div className="bg-gradient-to-r from-cobalt-900 to-cobalt-700 text-white px-5 py-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-200">Archive</div>
-        <div className="text-lg font-bold leading-tight mt-0.5">Saved comparative matrices</div>
-        <div className="text-sm text-slate-300">{list.length} saved{list.length === 1 ? ' comparison' : ' comparisons'} on this device</div>
+      <div className="px-5 py-4 border-b border-slate-200/80">
+        <div className="kicker text-cobalt-500">Archive</div>
+        <div className="text-lg font-bold leading-tight mt-0.5 text-slate-900">Saved comparative matrices</div>
+        <div className="text-sm text-slate-500">{list.length} saved{list.length === 1 ? ' comparison' : ' comparisons'} on this device</div>
       </div>
 
       {/* Backup / restore + storage status */}
-      <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 bg-white border-b border-slate-200 text-[12px]">
-        <button onClick={handleBackup} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>⬇ Back up to file</button>
-        <button onClick={() => fileRef.current && fileRef.current.click()} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>⬆ Restore from file</button>
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-white border-b border-slate-200/80 text-[12px]">
+        <button onClick={handleBackup} className={btn + ' btn-secondary'}>⬇ Back up to file</button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} className={btn + ' btn-secondary'}>⬆ Restore from file</button>
         <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={handleRestoreFile} />
         {storageAvailable
-          ? <span className="ml-auto inline-flex items-center gap-1.5 text-teal-600"><span>●</span> Saved in this browser — stays until you delete it</span>
-          : <span className="ml-auto inline-flex items-center gap-1.5 text-rosegold-700"><span>●</span> This preview can’t save to your browser — use Back up / Restore, or open the file in a browser tab</span>}
+          ? <span className="ml-auto pill bg-teal-50 text-teal-700 ring-teal-200"><span className="w-1.5 h-1.5 rounded-full bg-teal-500" /> Saved in this browser — stays until you delete it</span>
+          : <span className="ml-auto pill bg-rosegold-50 text-rosegold-800 ring-rosegold-200"><span className="w-1.5 h-1.5 rounded-full bg-rosegold-500" /> This preview can’t save to your browser — use Back up / Restore, or open the file in a browser tab</span>}
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-200 text-[12px] text-slate-600">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3 bg-slate-50/80 border-b border-slate-200/80 text-[12px] font-medium text-slate-500">
         <input
           value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search client or title…"
-          className="rounded-md ring-1 ring-slate-200 px-2.5 py-1.5 min-w-[200px]" />
+          className="field field-sm min-w-[220px]" />
         <label className="inline-flex items-center gap-1.5">Policy
-          <select value={policy} onChange={(e) => setPolicy(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5">
+          <select value={policy} onChange={(e) => setPolicy(e.target.value)} className="field field-sm">
             <option value="all">All</option>
             {policyOpts.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
         <label className="inline-flex items-center gap-1.5">From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5" />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="field field-sm" />
         </label>
         <label className="inline-flex items-center gap-1.5">To
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5" />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="field field-sm" />
         </label>
         <label className="inline-flex items-center gap-1.5 ml-auto">Sort
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-md ring-1 ring-slate-200 px-2 py-1.5">
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="field field-sm">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
             <option value="client">Client A–Z</option>
@@ -121,8 +121,10 @@ export default function ArchiveView({ list, onView, onRestore, onDelete, onReloa
 
       {/* Empty states */}
       {list.length === 0 ? (
-        <div className="text-center text-slate-400 py-16 px-6">
-          <div className="text-4xl mb-3">🗄️</div>
+        <div className="text-center text-slate-500 py-16 px-6">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-cobalt-50 text-cobalt-500">
+            <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v9.2A1.8 1.8 0 0 0 6.8 19h10.4A1.8 1.8 0 0 0 19 17.2V8" /><path d="M10 13h4" /></svg>
+          </div>
           <p className="text-sm">No archived matrices yet. Save a comparative matrix to see it here.</p>
         </div>
       ) : filtered.length === 0 ? (
@@ -132,32 +134,32 @@ export default function ArchiveView({ list, onView, onRestore, onDelete, onReloa
       ) : (
         <>
           <div className="overflow-auto">
-            <table className="min-w-full text-[13px]">
+            <table className="min-w-full text-[13px] data-table">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50">
-                  <th className="px-4 py-2.5 font-semibold">Title</th>
-                  <th className="px-4 py-2.5 font-semibold">Client</th>
-                  <th className="px-4 py-2.5 font-semibold">Policy type</th>
-                  <th className="px-4 py-2.5 font-semibold">Saved</th>
-                  <th className="px-4 py-2.5 font-semibold">By</th>
-                  <th className="px-4 py-2.5 font-semibold text-right">Actions</th>
+                <tr className="border-b border-slate-200 bg-white">
+                  <th className="px-4 py-3">Title</th>
+                  <th className="px-4 py-3">Client</th>
+                  <th className="px-4 py-3">Policy type</th>
+                  <th className="px-4 py-3">Saved</th>
+                  <th className="px-4 py-3">By</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/60 align-top">
-                    <td className="px-4 py-2.5 font-medium text-slate-800 max-w-[260px]">{r.title}</td>
-                    <td className="px-4 py-2.5 text-slate-600 max-w-[200px]">{r.client_name}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{r.policy_type || <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{fmtDate(r.saved_at)}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{r.saved_by}</td>
-                    <td className="px-4 py-2.5">
+                  <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/60 align-middle">
+                    <td className="px-4 py-3 font-semibold text-slate-900 max-w-[260px]">{r.title}</td>
+                    <td className="px-4 py-3 text-slate-600 max-w-[200px]">{r.client_name}</td>
+                    <td className="px-4 py-3 text-slate-600">{r.policy_type || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{fmtDate(r.saved_at)}</td>
+                    <td className="px-4 py-3 text-slate-500">{r.saved_by}</td>
+                    <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 justify-end">
-                        <button onClick={() => onView(r)} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>View</button>
-                        <button onClick={() => onRestore(r)} className={btn + ' ring-cobalt-200 text-cobalt-600 hover:bg-cobalt-50'}>Restore</button>
-                        <button onClick={() => doExport(r, 'xlsx')} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>Excel</button>
-                        <button onClick={() => doExport(r, 'pdf')} className={btn + ' ring-slate-200 text-slate-700 hover:bg-slate-100'}>PDF</button>
-                        <button onClick={() => setConfirm(r)} className={btn + ' ring-poppy-200 text-poppy-600 hover:bg-poppy-50'}>Delete</button>
+                        <button onClick={() => onView(r)} className={btn + ' btn-secondary'}>View</button>
+                        <button onClick={() => onRestore(r)} className={btn + ' btn-secondary text-cobalt-600'}>Restore</button>
+                        <button onClick={() => doExport(r, 'xlsx')} className={btn + ' btn-secondary'}>Excel</button>
+                        <button onClick={() => doExport(r, 'pdf')} className={btn + ' btn-secondary'}>PDF</button>
+                        <button onClick={() => setConfirm(r)} className={btn + ' btn-danger-soft'}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -172,10 +174,10 @@ export default function ArchiveView({ list, onView, onRestore, onDelete, onReloa
               <span>Showing {(clamped - 1) * PAGE + 1}–{Math.min(clamped * PAGE, filtered.length)} of {filtered.length}</span>
               <div className="flex items-center gap-2">
                 <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={clamped <= 1}
-                  className="rounded-md ring-1 ring-slate-200 px-2.5 py-1 disabled:opacity-40 hover:bg-slate-50">Prev</button>
-                <span>Page {clamped} / {pages}</span>
+                  className="btn btn-secondary btn-sm">Prev</button>
+                <span className="tnum">Page {clamped} / {pages}</span>
                 <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={clamped >= pages}
-                  className="rounded-md ring-1 ring-slate-200 px-2.5 py-1 disabled:opacity-40 hover:bg-slate-50">Next</button>
+                  className="btn btn-secondary btn-sm">Next</button>
               </div>
             </div>
           )}
@@ -184,13 +186,13 @@ export default function ArchiveView({ list, onView, onRestore, onDelete, onReloa
 
       {/* Delete confirmation */}
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setConfirm(null)}>
-          <div className="bg-white rounded-xl shadow-xl ring-1 ring-slate-200 max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="text-base font-semibold text-slate-800 mb-1">Delete this archived matrix?</div>
-            <p className="text-sm text-slate-500 mb-4">“{confirm.title}” will be permanently removed from the Archive on this device. This can’t be undone.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 backdrop-blur-sm px-4" onClick={() => setConfirm(null)}>
+          <div className="bg-white rounded-2xl shadow-pop ring-1 ring-slate-200 max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-base font-semibold text-slate-900 mb-1.5">Delete this archived matrix?</div>
+            <p className="text-sm text-slate-500 mb-5 leading-relaxed">“{confirm.title}” will be permanently removed from the Archive on this device. This can’t be undone.</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirm(null)} className="text-sm rounded-md ring-1 ring-slate-200 px-3 py-1.5 hover:bg-slate-50 text-slate-700">Cancel</button>
-              <button onClick={() => { onDelete(confirm); setConfirm(null); }} className="text-sm rounded-md bg-poppy-600 hover:bg-poppy-700 text-white px-3 py-1.5">Delete</button>
+              <button onClick={() => setConfirm(null)} className="btn btn-secondary">Cancel</button>
+              <button onClick={() => { onDelete(confirm); setConfirm(null); }} className="btn btn-danger">Delete</button>
             </div>
           </div>
         </div>

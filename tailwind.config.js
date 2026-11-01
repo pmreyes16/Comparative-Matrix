@@ -53,6 +53,19 @@ export default {
           800: '#82110E',
           900: '#5C0B09',
         },
+        // App-shell neutrals: the canvas behind cards and the deep navy of
+        // the sidebar.
+        canvas: '#F4F6FA',
+        ink: {
+          800: '#0B1B3A',
+          900: '#071430',
+          950: '#040C20',
+        },
+      },
+      boxShadow: {
+        card: '0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06)',
+        lift: '0 4px 12px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04)',
+        pop: '0 24px 48px -12px rgba(16, 24, 40, 0.25)',
       },
     },
   },

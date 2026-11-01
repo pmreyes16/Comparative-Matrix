@@ -6,7 +6,7 @@ function MatrixCell({ cell }) {
   if (!cell || cell.t === 'empty') return <span className="text-slate-300">—</span>;
   if (cell.t === 'check') {
     return (
-      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs font-bold" title="As proposed">
+      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-500 text-white text-[11px] font-bold shadow-sm" title="As proposed">
         ✓
       </span>
     );
@@ -36,7 +36,7 @@ function MatrixEditableCell({ cell, onCommit }) {
         onChange={(e) => setVal(e.target.value)}
         onBlur={() => { setEditing(false); onCommit(val); }}
         onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); }}
-        className="w-full text-[13px] rounded border border-cobalt-500 px-1.5 py-1 outline-none resize-y"
+        className="w-full text-[13px] edit-input resize-y"
       />
     );
   }
@@ -52,7 +52,7 @@ function MatrixEditableCell({ cell, onCommit }) {
       {!cell || cell.t === 'empty' ? (
         <span className="text-slate-300">—</span>
       ) : cell.t === 'check' ? (
-        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-xs font-bold" title="As proposed">
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-500 text-white text-[11px] font-bold shadow-sm" title="As proposed">
           ✓
         </span>
       ) : (
@@ -79,7 +79,7 @@ function EditableColumnName({ name, big, onRename }) {
         onBlur={() => { setEditing(false); onRename(val); }}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
         placeholder="Insurer name"
-        className={'w-full rounded border border-cobalt-500 px-1.5 py-1 outline-none bg-white ' + (big ? 'text-sm font-bold' : 'text-sm font-semibold')}
+        className={'w-full edit-input ' + (big ? 'text-sm font-bold' : 'text-sm font-semibold')}
       />
     );
   }
@@ -91,7 +91,7 @@ function EditableColumnName({ name, big, onRename }) {
       onClick={() => { setVal(name || ''); setEditing(true); }}
       className="group text-left w-full"
     >
-      <span className={big ? 'font-bold text-slate-800 leading-tight' : 'font-semibold text-slate-700 leading-tight'}>
+      <span className={big ? 'font-bold text-slate-900 leading-tight' : 'font-semibold text-slate-800 leading-tight'}>
         {name || <span className="text-slate-400 italic font-normal">Click to name insurer</span>}
       </span>
       <span className="ml-1 align-top text-[10px] text-slate-300 group-hover:text-cobalt-500 no-print">✎</span>
@@ -140,7 +140,7 @@ function RowLabel({ row, staticLabel, dragging, onRename, onRemove, onInsertBelo
         onBlur={() => { setEditing(false); onRename(val); }}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
         placeholder="Row label"
-        className="w-full text-[13px] font-semibold rounded border border-cobalt-500 px-1.5 py-1 outline-none"
+        className="w-full text-[13px] font-semibold edit-input"
       />
     );
   }
@@ -249,20 +249,20 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
   };
 
   return (
-    <div id="matrix-print" className="rounded-2xl ring-1 ring-slate-200 shadow-sm bg-white overflow-hidden">
-      <div className="bg-gradient-to-r from-cobalt-900 to-cobalt-700 text-white px-5 py-4 flex items-start justify-between gap-4">
+    <div id="matrix-print" className="card overflow-hidden">
+      <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/80">
         <div className="flex items-start gap-3 min-w-0">
           <div className="min-w-0">
             {matrix.eyebrow && (
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-200">{matrix.eyebrow}</div>
+              <div className="kicker text-cobalt-500">{matrix.eyebrow}</div>
             )}
-            <div className="text-lg font-bold leading-tight">{matrix.title}</div>
+            <div className="text-lg font-bold leading-tight text-slate-900 mt-0.5">{matrix.title}</div>
             {matrix.subtitle && (
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cobalt-200 mt-1">{matrix.subtitle}</div>
+              <div className="text-[12px] text-slate-500 mt-0.5">{matrix.subtitle}</div>
             )}
           </div>
         </div>
-        <div className="no-print flex items-center gap-2 shrink-0">
+        <div className="no-print flex flex-wrap items-center gap-2 shrink-0">
           {onSave && (
             <button
               onClick={() => run('save', async () => {
@@ -271,7 +271,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
               })}
               disabled={!!busy}
               title="Save this comparison as a file you can reopen later"
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/15 hover:bg-white/25 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/25 font-medium"
+              className="btn btn-primary btn-sm"
             >
               {busy === 'save' && <MatrixSpinner />}
               {busy === 'save' ? 'Saving…' : 'Save'}
@@ -280,7 +280,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
           <button
             onClick={() => run('xlsx', () => exportMatrixToXlsx(matrix))}
             disabled={!!busy}
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/20"
+            className="btn btn-secondary btn-sm"
           >
             {busy === 'xlsx' && <MatrixSpinner />}
             {busy === 'xlsx' ? 'Exporting…' : 'Export Excel'}
@@ -288,7 +288,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
           <button
             onClick={() => run('pdf', () => exportMatrixToPdf(matrix))}
             disabled={!!busy}
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 ring-1 ring-white/20"
+            className="btn btn-secondary btn-sm"
           >
             {busy === 'pdf' && <MatrixSpinner />}
             {busy === 'pdf' ? 'Preparing…' : 'Export PDF'}
@@ -298,7 +298,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
               onClick={onArchive}
               disabled={!!busy}
               title="Open the Archive"
-              className="inline-flex items-center gap-1.5 rounded-md bg-cobalt-500 hover:bg-cobalt-700 disabled:opacity-60 text-white text-xs px-3 py-1.5 ring-1 ring-white/10 font-medium"
+              className="btn btn-ghost btn-sm"
             >
               <MatrixArchiveIcon /> Archive
             </button>
@@ -307,17 +307,17 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-[12px] text-slate-500">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 bg-slate-50/80 border-b border-slate-200/80 text-[12px] text-slate-500">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold">✓</span>
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-teal-500 text-white text-[9px] font-bold">✓</span>
           As proposed
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-rosegold-100 ring-1 ring-rosegold-300" />
+          <span className="inline-block w-3.5 h-3.5 rounded bg-rosegold-50 border-l-2 border-rosegold-400 ring-1 ring-inset ring-rosegold-200" />
           Deviation from proposed terms
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="text-poppy-600 font-medium">DELETED</span> Not offered
+          <span className="pill bg-poppy-50 text-poppy-600 ring-poppy-200 py-0 text-[10px]">DELETED</span> Not offered
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="text-slate-300">—</span> Not addressed
@@ -329,12 +329,12 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
         <table className="min-w-full table-fixed border-collapse text-[13px]">
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-left px-3 py-3 font-semibold text-slate-500 border-b border-r border-slate-200 w-52">
+              <th className="sticky left-0 top-0 z-30 bg-slate-50 text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 border-b border-r border-slate-200 w-56">
                 Terms &amp; Conditions
               </th>
               {hasBaseline && (
-                <th className="sticky top-0 z-20 bg-cobalt-50 text-left px-3 py-3 border-b border-slate-200 w-64 align-bottom">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cobalt-600">
+                <th className="sticky top-0 z-20 bg-cobalt-50 text-left px-4 py-3 border-b border-cobalt-200 w-64 align-bottom">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cobalt-500 mb-0.5">
                     {matrix.baseline.role || 'Proposed'}
                   </div>
                   {editable && onRenameInsurer ? (
@@ -345,7 +345,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                 </th>
               )}
               {cols.map((c) => (
-                <th key={c.id} className="sticky top-0 z-20 bg-slate-100 px-3 py-3 text-left border-b border-slate-200 w-64 align-bottom">
+                <th key={c.id} className="sticky top-0 z-20 bg-slate-50 px-4 py-3 text-left border-b border-slate-200 w-64 align-bottom">
                   {editable && onRenameInsurer ? (
                     <EditableColumnName name={c.name} onRename={(v) => onRenameInsurer(c.id, v)} />
                   ) : (
@@ -377,7 +377,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                     <th
                       rowSpan={rowMerge.span[ri]}
                       className={
-                        'sticky left-0 z-10 bg-white text-left px-3 py-2 font-semibold text-slate-700 border-r border-slate-200 ' +
+                        'sticky left-0 z-10 bg-white text-left px-4 py-2.5 font-semibold text-slate-800 border-r border-slate-200 ' +
                         rowTop + (row.total ? ' bg-slate-50' : '') + (rowMerge.span[ri] > 1 ? ' align-middle' : '')
                       }
                     >
@@ -403,7 +403,7 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                     </th>
                   )}
                   {hasBaseline && (
-                    <td className={'px-3 py-2 bg-cobalt-50/60 text-slate-800 ' + rowTop}>
+                    <td className={'px-4 py-2.5 bg-cobalt-50/50 text-slate-800 ' + rowTop}>
                       {editable ? (
                         <MatrixEditableCell
                           cell={{ t: row.howden ? 'text' : 'empty', v: row.howden, raw: row.howden }}
@@ -425,8 +425,8 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                       <td
                         key={c.id}
                         className={
-                          'px-3 py-2 ' + rowTop + ' ' +
-                          (cell && cell.t === 'check' ? 'bg-teal-50/40' : dev ? 'bg-rosegold-50 border-l-2 border-l-rosegold-400' : '')
+                          'px-4 py-2.5 ' + rowTop + ' ' +
+                          (cell && cell.t === 'check' ? 'bg-teal-50/50' : dev ? 'bg-rosegold-50/80 border-l-2 border-l-rosegold-400' : '')
                         }
                       >
                         {editable ? (
@@ -442,12 +442,12 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
             })}
             {editable && onAddRow && (
               <tr className="no-print border-t-2 border-dashed border-slate-200 hover:bg-slate-50/70">
-                <th className="sticky left-0 z-10 bg-white text-left px-3 py-2 border-r border-slate-200">
+                <th className="sticky left-0 z-10 bg-white text-left px-4 py-2.5 border-r border-slate-200">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={onAddRow}
-                      className="inline-flex items-center gap-1.5 text-slate-500 hover:text-cobalt-600 text-xs font-medium transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 -ml-2 text-cobalt-500 hover:bg-cobalt-50 text-xs font-semibold transition-colors"
                     >
                       <span className="text-sm leading-none">+</span> Add a row
                     </button>
@@ -466,9 +466,9 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                     )}
                   </div>
                 </th>
-                {hasBaseline && <td className="px-3 py-2 bg-cobalt-50/30" />}
+                {hasBaseline && <td className="px-4 py-2.5 bg-cobalt-50/30" />}
                 {cols.map((c) => (
-                  <td key={c.id} className="px-3 py-2" />
+                  <td key={c.id} className="px-4 py-2.5" />
                 ))}
               </tr>
             )}
@@ -477,14 +477,14 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
       </div>
 
       {matrix.footnotes && matrix.footnotes.length > 0 && (
-        <div className="px-5 py-4 bg-slate-50 border-t border-slate-200">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+        <div className="px-5 py-5 bg-slate-50/80 border-t border-slate-200">
+          <div className="kicker mb-3">
             Additional clauses, warranties &amp; subjectivities
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {matrix.footnotes.map((f) => (
-              <div key={f.colId}>
-                <div className="text-sm font-semibold text-slate-700 mb-1">{f.name}</div>
+              <div key={f.colId} className="rounded-xl bg-white border border-slate-200/80 p-3">
+                <div className="text-sm font-semibold text-slate-800 mb-1.5">{f.name}</div>
                 <ul className="text-[12px] text-slate-600 space-y-0.5">
                   {f.lines.map((l, i) => (
                     <li key={i} className="whitespace-pre-wrap break-words">{l}</li>

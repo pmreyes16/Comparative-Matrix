@@ -11,14 +11,14 @@ const TODAY = new Date('2026-07-01T00:00:00');
 const nameOf = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
 
 function KpiTile({ label, tone, icon, children }) {
-  const iconBg = tone === 'good' ? 'bg-teal-500' : tone === 'warn' ? 'bg-rosegold-500' : 'bg-cobalt-500';
+  const iconBg = tone === 'good' ? 'bg-teal-50 text-teal-600' : tone === 'warn' ? 'bg-rosegold-50 text-rosegold-600' : 'bg-cobalt-50 text-cobalt-500';
   return (
-    <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3.5 shadow-sm">
-      <div className="flex items-center gap-2.5 mb-2">
-        <span className={'inline-flex items-center justify-center w-8 h-8 rounded-lg text-white shrink-0 ' + iconBg}>
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2.5 mb-3">
+        <div className="kicker leading-snug">{label}</div>
+        <span className={'inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0 ' + iconBg}>
           {icon}
         </span>
-        <div className="text-[11px] uppercase tracking-wide text-slate-400 leading-tight">{label}</div>
       </div>
       {children}
     </div>
@@ -64,8 +64,8 @@ function ValueRanker({ proposals }) {
   const max = Math.max(...ranked.map((r) => r.score), 0.0001);
   return (
     <div>
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-xs text-slate-500 whitespace-nowrap">Prioritise price</span>
+      <div className="flex items-center gap-3 mb-4 rounded-xl bg-slate-50 border border-slate-200/80 px-4 py-2.5">
+        <span className="text-[12px] font-medium text-slate-500 whitespace-nowrap">Prioritise price</span>
         <input
           type="range"
           min="0"
@@ -75,24 +75,24 @@ function ValueRanker({ proposals }) {
           onChange={(e) => setWeight(Number(e.target.value))}
           className="flex-1"
         />
-        <span className="text-xs text-slate-500 whitespace-nowrap">Prioritise coverage</span>
+        <span className="text-[12px] font-medium text-slate-500 whitespace-nowrap">Prioritise coverage</span>
       </div>
       <div className="space-y-2">
         {ranked.map((r, i) => (
           <div key={r.p.id} className="flex items-center gap-3">
             <span className="w-5 text-right text-xs text-slate-400 tnum">{i + 1}</span>
             <span className="w-40 truncate text-sm text-slate-700" title={nameOf(r.p)}>{nameOf(r.p)}</span>
-            <div className="flex-1 bg-slate-100 rounded h-5 overflow-hidden">
+            <div className="bar-track h-2.5">
               <div
-                className={'h-5 rounded ' + (i === 0 ? 'bg-cobalt-500' : 'bg-cobalt-200')}
+                className={'h-2.5 rounded-full transition-[width] duration-300 ' + (i === 0 ? 'bg-cobalt-500' : 'bg-cobalt-200')}
                 style={{ width: Math.max(4, (r.score / max) * 100) + '%' }}
               />
             </div>
-            <span className="w-9 text-right text-xs tnum text-slate-500">{Math.round(r.score * 100)}</span>
+            <span className="w-9 text-right text-[13px] font-semibold tnum text-slate-700">{Math.round(r.score * 100)}</span>
           </div>
         ))}
       </div>
-      <div className="mt-2 text-[11px] text-slate-400">
+      <div className="mt-3 hint">
         Automated value score blending your price/coverage weighting — a comparison aid, not a recommendation. Always
         verify against the slips.
       </div>
@@ -110,10 +110,10 @@ function ClauseDifferences({ proposals }) {
   const d = clauseDiff(proposals);
   const anyDiffer = d.perProposal.some((x) => x.unique.length > 0);
   return (
-    <div className="mt-4 pt-3 border-t border-slate-100">
-      <div className="flex items-center gap-2 text-sm mb-2">
+    <div className="mt-5 pt-4 border-t border-slate-100">
+      <div className="flex flex-wrap items-center gap-2 text-sm mb-3">
         <span className={'w-2 h-2 rounded-full shrink-0 ' + (anyDiffer ? 'bg-rosegold-500' : 'bg-teal-500')} />
-        <span className="text-slate-600 font-medium">Clauses &amp; Warranties</span>
+        <span className="text-slate-800 font-semibold">Clauses &amp; Warranties</span>
         <span className="text-slate-500">
           {anyDiffer
             ? d.commonCount + ' clause' + (d.commonCount !== 1 ? 's' : '') + ' shared by all — differences below'
@@ -126,8 +126,8 @@ function ClauseDifferences({ proposals }) {
         // scrollbar once they'd get too narrow to read.
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {d.perProposal.map((x) => (
-            <div key={x.p.id} className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2.5 min-w-0">
-              <div className="text-[11px] font-semibold text-slate-600 truncate mb-1.5" title={nameOf(x.p)}>
+            <div key={x.p.id} className="rounded-xl bg-slate-50/70 border border-slate-200 p-3 min-w-0">
+              <div className="text-[12px] font-semibold text-slate-700 truncate mb-2" title={nameOf(x.p)}>
                 {nameOf(x.p)} <span className="text-slate-400 font-normal">({x.unique.length} unique)</span>
               </div>
               {x.unique.length ? (
@@ -179,9 +179,9 @@ function DiffAtAGlance({ proposals }) {
         </colgroup>
         <thead>
           <tr>
-            <th className="text-left text-slate-400 font-medium pb-1.5 pr-3 whitespace-nowrap">Field</th>
+            <th className="text-left text-[11px] uppercase tracking-[0.08em] text-slate-400 font-semibold pb-2 pr-3 whitespace-nowrap">Field</th>
             {proposals.map((p) => (
-              <th key={p.id} className="text-left text-slate-700 font-semibold pb-1.5 px-2.5 truncate" title={nameOf(p)}>
+              <th key={p.id} className="text-left text-slate-800 font-semibold pb-2 px-2.5 truncate" title={nameOf(p)}>
                 {nameOf(p)}
               </th>
             ))}
@@ -199,7 +199,7 @@ function DiffAtAGlance({ proposals }) {
             const differ = !allBlank && !allSame;
             return (
               <tr key={i} className="border-t border-slate-100">
-                <td className="py-1.5 pr-3 align-top whitespace-nowrap">
+                <td className="py-2 pr-3 align-top whitespace-nowrap">
                   <span className="inline-flex items-center gap-1.5 text-slate-500">
                     <span className={'w-1.5 h-1.5 rounded-full shrink-0 ' + (differ ? 'bg-rosegold-500' : allSame ? 'bg-teal-500' : 'bg-slate-300')} />
                     {r.label}
@@ -208,7 +208,7 @@ function DiffAtAGlance({ proposals }) {
                 {vals.map((v, j) => (
                   <td
                     key={j}
-                    className={'py-1.5 px-2.5 align-top whitespace-pre-wrap break-words ' + (differ && v ? 'bg-rosegold-50 text-rosegold-900' : 'text-slate-600')}
+                    className={'py-2 px-2.5 align-top whitespace-pre-wrap break-words ' + (differ && v ? 'bg-rosegold-50/70 text-rosegold-900' : 'text-slate-600')}
                   >
                     {v || <span className="text-slate-300">—</span>}
                   </td>
@@ -227,10 +227,10 @@ export default function Overview({ proposals, onView }) {
   const lowName = A.lowest ? nameOf(A.lowest.p) : null;
   const covName = A.mostCoverage ? nameOf(A.mostCoverage.p) : null;
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-5">
+      <div className="grid gap-4 grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Proposals compared" icon={<IconStack />}>
-          <div className="text-2xl font-bold text-slate-800 tnum">{A.count}</div>
+          <div className="text-[28px] leading-none font-bold text-slate-900 tnum mb-1.5">{A.count}</div>
           <div className="text-[11px] text-slate-400 truncate">{A.policyTypes.join(', ') || '—'}</div>
           <div className="text-[11px] text-slate-400 truncate">
             {['Commercial', 'Personal', 'Uncategorized']
@@ -242,7 +242,7 @@ export default function Overview({ proposals, onView }) {
         <KpiTile label="Lowest total premium" tone={A.lowest ? 'good' : undefined} icon={<IconTrendDown />}>
           {A.lowest ? (
             <div>
-              <div className="mono-amt tnum text-lg font-bold text-teal-700">{A.lowest.disp}</div>
+              <div className="mono-amt tnum text-xl font-bold text-teal-700 mb-0.5">{A.lowest.disp}</div>
               <div className="text-[11px] text-slate-500 truncate">{lowName}</div>
             </div>
           ) : (
@@ -252,7 +252,7 @@ export default function Overview({ proposals, onView }) {
         <KpiTile label="Highest total premium" icon={<IconTrendUp />}>
           {A.highest ? (
             <div>
-              <div className="mono-amt tnum text-lg font-bold text-slate-700">{A.highest.disp}</div>
+              <div className="mono-amt tnum text-xl font-bold text-slate-800 mb-0.5">{A.highest.disp}</div>
               <div className="text-[11px] text-slate-500 truncate">{nameOf(A.highest.p)}</div>
             </div>
           ) : (
@@ -262,7 +262,7 @@ export default function Overview({ proposals, onView }) {
         <KpiTile label="Potential saving (computed)" tone={A.spread ? 'good' : undefined} icon={<IconPercent />}>
           {A.spread != null ? (
             <div>
-              <div className="mono-amt tnum text-lg font-bold text-slate-800">{formatComputed(A.spread, A.symbol)}</div>
+              <div className="mono-amt tnum text-xl font-bold text-slate-900 mb-0.5">{formatComputed(A.spread, A.symbol)}</div>
               <div className="text-[11px] text-slate-400">≈ {A.savingsPct.toFixed(1)}% vs highest · computed</div>
             </div>
           ) : (
@@ -271,10 +271,10 @@ export default function Overview({ proposals, onView }) {
         </KpiTile>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2 bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Overall analysis</div>
-          <p className="text-sm text-slate-700 leading-relaxed">
+      <div className="grid gap-5 lg:grid-cols-3">
+        <div className="lg:col-span-2 card card-pad">
+          <div className="card-title mb-3">Overall analysis</div>
+          <p className="text-[15px] text-slate-600 leading-relaxed [&_strong]:text-slate-900">
             You're comparing <strong>{A.count}</strong> proposal{A.count !== 1 ? 's' : ''}
             {A.policyTypes.length ? (
               <>
@@ -320,7 +320,7 @@ export default function Overview({ proposals, onView }) {
               </>
             ) : null}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             {A.lowest && <Badge tone="price">Best price: {lowName}</Badge>}
             {covName && <Badge tone="cover">Most coverage: {covName}</Badge>}
             {A.lapsed.map((p, i) => (
@@ -332,15 +332,15 @@ export default function Overview({ proposals, onView }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Data quality</div>
-          <div className="space-y-1.5">
+        <div className="card card-pad">
+          <div className="card-title mb-3">Data quality</div>
+          <div className="space-y-2.5">
             {A.completeness.map((c, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-28 truncate text-sm text-slate-600" title={nameOf(c.p)}>{nameOf(c.p)}</span>
-                <div className="flex-1 bg-slate-100 rounded h-3 overflow-hidden">
+                <div className="bar-track h-2">
                   <div
-                    className={'h-3 ' + (c.pct >= 75 ? 'bg-teal-500' : c.pct >= 45 ? 'bg-rosegold-500' : 'bg-poppy-500')}
+                    className={'h-2 rounded-full ' + (c.pct >= 75 ? 'bg-teal-500' : c.pct >= 45 ? 'bg-rosegold-500' : 'bg-poppy-500')}
                     style={{ width: c.pct + '%' }}
                   />
                 </div>
@@ -348,25 +348,25 @@ export default function Overview({ proposals, onView }) {
               </div>
             ))}
           </div>
-          <div className="mt-2 text-[11px] text-slate-400">Share of key fields detected per slip.</div>
+          <div className="mt-3 hint">Share of key fields detected per slip.</div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Interactive value ranking</div>
+      <div className="card card-pad">
+        <div className="card-title mb-4">Interactive value ranking</div>
         <ValueRanker proposals={proposals} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 items-start">
+      <div className="grid gap-5 lg:grid-cols-2 items-start">
         <PremiumChart proposals={proposals} />
         <PremiumSharePie proposals={proposals} />
       </div>
 
-      <div className="bg-white rounded-xl ring-1 ring-slate-200 shadow-sm p-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Differences at a glance</div>
+      <div className="card card-pad">
+        <div className="card-title mb-4">Differences at a glance</div>
         <DiffAtAGlance proposals={proposals} />
         <ClauseDifferences proposals={proposals} />
-        <button className="mt-3 text-xs text-cobalt-600 hover:underline" onClick={() => onView('table')}>
+        <button className="mt-4 text-[13px] link" onClick={() => onView('table')}>
           Open full comparison table →
         </button>
       </div>

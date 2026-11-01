@@ -48,17 +48,17 @@ export default function ComparisonTable({ proposals, onlyDiff, onAssignLogo }) {
   );
 
   return (
-    <div className="cmp-scroll overflow-auto rounded-xl ring-1 ring-slate-200 bg-white">
+    <div className="cmp-scroll overflow-auto card">
       <table className="min-w-full border-collapse text-sm">
         <thead>
           <tr>
-            <th className="sticky left-0 top-0 z-20 bg-slate-50 text-left px-3 py-3 font-semibold text-slate-500 w-56 border-b border-slate-200">
+            <th className="sticky left-0 top-0 z-20 bg-slate-50 text-left px-4 py-3 text-[11px] uppercase tracking-[0.08em] font-semibold text-slate-500 w-56 border-b border-slate-200">
               Field
             </th>
             {proposals.map((p) => (
               <th
                 key={p.id}
-                className="sticky top-0 z-10 bg-slate-50 px-3 py-3 text-left border-b border-slate-200 min-w-[220px] align-top"
+                className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left border-b border-slate-200 min-w-[220px] align-top"
               >
                 <InsurerHeader prop={p} onAssignLogo={onAssignLogo} />
               </th>
@@ -72,13 +72,13 @@ export default function ComparisonTable({ proposals, onlyDiff, onAssignLogo }) {
             const differs = uniq.size > 1;
             return (
               <tr key={row.key} className={differs ? 'bg-rosegold-50/40' : ''}>
-                <th className="sticky left-0 z-10 bg-white text-left align-top px-3 py-2 font-medium text-slate-500 border-b border-slate-100">
+                <th className="sticky left-0 z-10 bg-white text-left align-top px-4 py-2.5 font-medium text-slate-600 border-b border-slate-100">
                   {row.label}
                 </th>
                 {proposals.map((p) => {
                   const m = row.money ? row.get(p) : null;
                   return (
-                    <td key={p.id} className="px-3 py-2 align-top border-b border-slate-100">
+                    <td key={p.id} className="px-4 py-2.5 align-top border-b border-slate-100">
                       {row.money ? (
                         m ? (
                           <span className="mono-amt tnum">{formatMoney(m)}</span>

@@ -53,7 +53,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-100 text-slate-800;
+    @apply bg-canvas text-slate-800 antialiased;
   }
 
   /* Consistent keyboard-focus ring app-wide, in the existing brand blue —
@@ -71,6 +71,109 @@
   }
 }
 
+/* Shared UI vocabulary — cards, buttons, form fields, pills — so every view
+   draws from the same handful of shapes instead of re-spelling utilities. */
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200/80 shadow-card;
+  }
+  .card-pad {
+    @apply p-5;
+  }
+  .kicker {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500;
+  }
+  .card-title {
+    @apply text-[15px] font-semibold text-slate-900 leading-snug;
+  }
+  .hint {
+    @apply text-[11px] text-slate-400 leading-relaxed;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium whitespace-nowrap transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-[12px] rounded-md;
+  }
+  .btn-primary {
+    @apply bg-cobalt-500 text-white shadow-sm hover:bg-cobalt-600 active:bg-cobalt-700;
+  }
+  .btn-accent {
+    @apply bg-teal-600 text-white shadow-sm hover:bg-teal-700;
+  }
+  .btn-secondary {
+    @apply bg-white text-slate-700 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300;
+  }
+  .btn-ghost {
+    @apply text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+  .btn-danger {
+    @apply bg-poppy-600 text-white shadow-sm hover:bg-poppy-700;
+  }
+  .btn-danger-soft {
+    @apply bg-white text-poppy-600 border border-poppy-200 hover:bg-poppy-50;
+  }
+  .btn-on-dark {
+    @apply bg-white/10 text-white ring-1 ring-inset ring-white/20 hover:bg-white/20;
+  }
+  .link {
+    @apply text-cobalt-500 font-medium hover:text-cobalt-700 hover:underline underline-offset-2;
+  }
+
+  .field {
+    @apply rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors hover:border-slate-300 focus:outline-none focus:border-cobalt-400 focus:ring-4 focus:ring-cobalt-100 disabled:bg-slate-50 disabled:opacity-60;
+  }
+  .field-sm {
+    @apply px-2.5 py-1.5 text-[13px];
+  }
+  .field-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ring-inset;
+  }
+
+  .seg {
+    @apply inline-flex items-center rounded-lg bg-slate-100 p-1 text-sm;
+  }
+  .seg-item {
+    @apply rounded-md px-3 py-1.5 font-medium text-slate-600 transition-colors hover:text-slate-900;
+  }
+  .seg-item-active {
+    @apply bg-white text-slate-900 shadow-sm;
+  }
+
+  .bar-track {
+    @apply flex-1 bg-slate-100 rounded-full overflow-hidden;
+  }
+
+  .data-table th {
+    @apply text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500;
+  }
+
+  .edit-input {
+    @apply rounded-md border border-cobalt-400 bg-white px-1.5 py-1 outline-none ring-4 ring-cobalt-100;
+  }
+}
+
+/* Range sliders in the brand blue. */
+input[type='range'] {
+  accent-color: #0047ab;
+}
+
+/* The toast is created by lib/exportMatrix.js with inline styles; restyle it
+   to match the shell (opacity stays under the script's control). */
+#cmp-toast {
+  background: #0b1b3a !important;
+  border-radius: 12px !important;
+  padding: 12px 18px !important;
+  font: 500 13px/1.45 'GT Ultra Median', ui-sans-serif, system-ui, sans-serif !important;
+  box-shadow: 0 24px 48px -12px rgba(16, 24, 40, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* tabular numerals so trailing .00 always lines up and never visually drops */
 .tnum {
   font-variant-numeric: tabular-nums;
@@ -85,7 +188,15 @@
 }
 .cmp-scroll::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 6px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.cmp-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+.cmp-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Print / Export PDF: show only the matrix, let it flow across pages */
