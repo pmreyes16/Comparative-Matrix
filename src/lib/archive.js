@@ -57,6 +57,7 @@ export function buildArchiveRecord(proposals, baselineId, customRows, rowOrder, 
     proposals: JSON.parse(JSON.stringify(proposals || [])), // deep-copied snapshot
     customRows: JSON.parse(JSON.stringify(customRows || [])),
     rowOrder: JSON.parse(JSON.stringify(rowOrder || [])),
+    rowEdits: JSON.parse(JSON.stringify((meta && meta.rowEdits) || { labels: {}, hidden: [] })),
   };
 }
 
@@ -143,7 +144,7 @@ export function comparisonFilename(proposals) {
   return [client, policy, stamp].filter(Boolean).join('-') + '.comparison.json';
 }
 
-export function buildComparisonPayload(proposals, baselineId, customRows, rowOrder) {
+export function buildComparisonPayload(proposals, baselineId, customRows, rowOrder, rowEdits) {
   const p0 = (proposals && proposals[0]) || {};
   return {
     app: 'howden-comparator',
@@ -156,5 +157,6 @@ export function buildComparisonPayload(proposals, baselineId, customRows, rowOrd
     proposals: JSON.parse(JSON.stringify(proposals || [])),
     customRows: JSON.parse(JSON.stringify(customRows || [])),
     rowOrder: JSON.parse(JSON.stringify(rowOrder || [])),
+    rowEdits: JSON.parse(JSON.stringify(rowEdits || { labels: {}, hidden: [] })),
   };
 }

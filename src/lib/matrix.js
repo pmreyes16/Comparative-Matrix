@@ -18,7 +18,7 @@ export function cellToText(cell) {
   return cell.v || '';
 }
 
-export function buildMatrixFromProposals(proposals, baselineId, customRows, rowOrder) {
+export function buildMatrixFromProposals(proposals, baselineId, customRows, rowOrder, rowEdits) {
   const list = proposals || [];
   const nm = (p) => (p.insurers[0] && p.insurers[0].name) || p.fileName;
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -173,6 +173,25 @@ export function buildMatrixFromProposals(proposals, baselineId, customRows, rowO
     rows.forEach((r) => { if (byKey.has(r.key)) orderedRows.push(r); });
   }
 
+  // User edits to built-in rows: renamed labels and deleted (hidden) rows,
+  // keyed by `labelKey` — the row key, or `group:<mergeGroup>` for rows whose
+  // label cell is merged (e.g. every clause row shares one label).
+  const labels = (rowEdits && rowEdits.labels) || {};
+  const hiddenSet = new Set((rowEdits && rowEdits.hidden) || []);
+  const allKeys = orderedRows.map((r) => r.key);
+  const finalRows = orderedRows
+    .map((r) => {
+      const labelKey = r.mergeGroup ? 'group:' + r.mergeGroup : r.key;
+      const out = { ...r, labelKey };
+      if (!r.custom && labels[labelKey] != null && String(labels[labelKey]).trim()) {
+        if (r.field || r.mergeGroup) out.field = labels[labelKey];
+        else out.subLabel = labels[labelKey];
+        out.renamed = true;
+      }
+      return out;
+    })
+    .filter((r) => r.custom || !hiddenSet.has(r.labelKey));
+
   const insuredName = [...new Set(list.map((p) => (p.insured || '').trim()).filter(Boolean))][0] || '';
   return {
     // Header reads: insured name (heading) with "CRS Comparative System" below it.
@@ -181,7 +200,9 @@ export function buildMatrixFromProposals(proposals, baselineId, customRows, rowO
     subtitle: insuredName ? 'CRS Comparative System' : '',
     baseline: baseline ? { id: baseline.id, name: nm(baseline), role: 'Selected baseline' } : null,
     columns: columns.map((c) => ({ id: c.id, name: c.name, logoUrl: c.logoUrl })),
-    rows: orderedRows,
+    rows: finalRows,
+    allKeys,
+    hiddenCount: hiddenSet.size,
     footnotes: [],
   };
 }

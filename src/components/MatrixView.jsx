@@ -121,11 +121,10 @@ function DragHandle({ onDragStart, onDragEnd }) {
 }
 
 /**
- * Row label cell for every row in the Matrix — a drag handle to reorder it
- * (built-in fields included, not just user-added rows) and an on-hover
- * button to insert a new row right below it. User-added rows additionally
- * get click-to-rename and a remove button; built-in fields show their fixed
- * label as plain text since they can't be renamed or deleted.
+ * Row label cell for every row in the Matrix — a drag handle to reorder it,
+ * click-to-rename, and on-hover buttons to insert a row below or delete it.
+ * Built-in fields can be renamed (blank resets the default label) and
+ * deleted (hidden — restorable from the bottom of the table) too.
  */
 function RowLabel({ row, staticLabel, dragging, onRename, onRemove, onInsertBelow, onDragStart, onDragEnd }) {
   const [editing, setEditing] = useState(false);
@@ -157,6 +156,16 @@ function RowLabel({ row, staticLabel, dragging, onRename, onRemove, onInsertBelo
         >
           {row.field ? row.field : <span className="text-slate-300 font-normal italic">Untitled row</span>}
         </button>
+      ) : onRename ? (
+        <button
+          type="button"
+          title={row.renamed ? 'Click to rename — leave blank to restore the original label' : 'Click to rename this row'}
+          onClick={() => { setVal(row.field || row.subLabel || ''); setEditing(true); }}
+          className="group/lbl text-left flex-1 min-w-0"
+        >
+          {staticLabel}
+          <span className="ml-1 align-top text-[10px] font-normal text-slate-300 opacity-0 group-hover/rowlabel:opacity-100 group-hover/lbl:text-cobalt-500 no-print">✎</span>
+        </button>
       ) : (
         <span className="flex-1 min-w-0">{staticLabel}</span>
       )}
@@ -168,10 +177,10 @@ function RowLabel({ row, staticLabel, dragging, onRename, onRemove, onInsertBelo
       >
         +
       </button>
-      {row.custom && (
+      {onRemove && (
         <button
           type="button"
-          title="Remove this row"
+          title={row.custom ? 'Remove this row' : row.mergeGroup ? 'Delete this group of rows' : 'Delete this row'}
           onClick={onRemove}
           className="no-print shrink-0 text-slate-300 hover:text-poppy-600 opacity-0 group-hover/rowlabel:opacity-100 transition-opacity text-xs leading-none"
         >
@@ -206,7 +215,7 @@ function MatrixArchiveIcon() {
  * column + header, section grouping and a per-insurer footnotes area. Pass
  * `onEdit` to make every cell click-to-edit; omit it for a read-only render.
  */
-export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onMoveRow, onRemoveEmptyRows, emptyRowCount, onRenameInsurer }) {
+export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive, onAddRow, onRenameRow, onRemoveRow, onMoveRow, onRemoveEmptyRows, emptyRowCount, onRenameInsurer, onRenameBuiltinRow, onHideRow, onRestoreHiddenRows }) {
   const hasBaseline = !!matrix.baseline;
   const cols = matrix.columns;
   const editable = typeof onEdit === 'function';
@@ -386,8 +395,20 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                           row={row}
                           staticLabel={row.field || (row.subLabel ? <span className="text-slate-500 font-medium">{row.subLabel}</span> : '')}
                           dragging={dragRowKey === row.key}
-                          onRename={(text) => onRenameRow && onRenameRow(row.rowId, text)}
-                          onRemove={() => onRemoveRow && onRemoveRow(row.rowId)}
+                          onRename={
+                            row.custom
+                              ? (text) => onRenameRow && onRenameRow(row.rowId, text)
+                              : onRenameBuiltinRow
+                              ? (text) => onRenameBuiltinRow(row.labelKey, text)
+                              : null
+                          }
+                          onRemove={
+                            row.custom
+                              ? () => onRemoveRow && onRemoveRow(row.rowId)
+                              : onHideRow
+                              ? () => onHideRow(row.labelKey)
+                              : null
+                          }
                           onInsertBelow={() => onAddRow && onAddRow(row.key)}
                           onDragStart={(e) => {
                             e.dataTransfer.effectAllowed = 'move';
@@ -451,6 +472,16 @@ export default function MatrixView({ matrix, controls, onEdit, onSave, onArchive
                     >
                       <span className="text-sm leading-none">+</span> Add a row
                     </button>
+                    {onRestoreHiddenRows && matrix.hiddenCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={onRestoreHiddenRows}
+                        title="Bring back every row you deleted"
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-slate-500 hover:text-cobalt-600 hover:bg-cobalt-50 text-xs font-medium transition-colors whitespace-nowrap"
+                      >
+                        ↺ Restore {matrix.hiddenCount} deleted
+                      </button>
+                    )}
                     {onRemoveEmptyRows && emptyRowCount > 0 && (
                       <button
                         type="button"

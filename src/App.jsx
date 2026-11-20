@@ -50,6 +50,7 @@ export default function App() {
   const [baselineId, setBaselineId] = useState('none');
   const [customRows, setCustomRows] = useState([]); // user-added matrix rows: [{ id, label }]
   const [rowOrder, setRowOrder] = useState([]); // drag-and-drop arrangement of ALL matrix rows, by row key
+  const [rowEdits, setRowEdits] = useState({ labels: {}, hidden: [] }); // renamed / deleted built-in matrix rows, by labelKey
   const [archiveList, setArchiveList] = useState([]);   // saved matrices (localStorage)
   const [archiveItem, setArchiveItem] = useState(null); // record being viewed read-only
   const [justSaved, setJustSaved] = useState(null);     // last saved record → confirmation banner
@@ -154,6 +155,26 @@ export default function App() {
     setCustomRows((prev) => prev.map((r) => (r.id === id ? { ...r, label } : r)));
   }, []);
 
+  // Built-in rows: rename (blank = back to the default label) and delete
+  // (hidden, restorable) — keyed by labelKey so a merged label cell such as
+  // Clauses & Warranties renames / removes its whole group at once.
+  const renameBuiltinRow = useCallback((labelKey, label) => {
+    setRowEdits((prev) => {
+      const labels = { ...prev.labels };
+      if (label && label.trim()) labels[labelKey] = label.trim();
+      else delete labels[labelKey];
+      return { ...prev, labels };
+    });
+  }, []);
+
+  const hideBuiltinRow = useCallback((labelKey) => {
+    setRowEdits((prev) => (prev.hidden.includes(labelKey) ? prev : { ...prev, hidden: [...prev.hidden, labelKey] }));
+  }, []);
+
+  const restoreHiddenRows = useCallback(() => {
+    setRowEdits((prev) => ({ ...prev, hidden: [] }));
+  }, []);
+
   const removeCustomRow = useCallback((id) => {
     setCustomRows((prev) => prev.filter((r) => r.id !== id));
     setRowOrder((prev) => prev.filter((k) => k !== 'custom:' + id));
@@ -197,6 +218,9 @@ export default function App() {
     setBaselineId(d.baselineId || 'none');
     setCustomRows(Array.isArray(d.customRows) ? d.customRows : []);
     setRowOrder(Array.isArray(d.rowOrder) ? d.rowOrder : []);
+    setRowEdits(d.rowEdits && typeof d.rowEdits === 'object'
+      ? { labels: d.rowEdits.labels || {}, hidden: Array.isArray(d.rowEdits.hidden) ? d.rowEdits.hidden : [] }
+      : { labels: {}, hidden: [] });
     setFiles(d.proposals.map((p) => ({
       id: p.id,
       name: p.fileName || 'Restored proposal',
@@ -213,12 +237,12 @@ export default function App() {
   const saveComparison = useCallback(async () => {
     if (!proposals.length) throw new Error('Nothing to save yet — upload some slips first.');
     const name = comparisonFilename(proposals);
-    triggerDownload(name, new Blob([JSON.stringify(buildComparisonPayload(proposals, baselineId, customRows, rowOrder), null, 2)], { type: 'application/json' }));
+    triggerDownload(name, new Blob([JSON.stringify(buildComparisonPayload(proposals, baselineId, customRows, rowOrder, rowEdits), null, 2)], { type: 'application/json' }));
     let rec = null;
-    try { rec = saveMatrixToArchive(proposals, baselineId, customRows, rowOrder); setArchiveList(loadArchive()); } catch (e) { /* storage blocked */ }
+    try { rec = saveMatrixToArchive(proposals, baselineId, customRows, rowOrder, { rowEdits }); setArchiveList(loadArchive()); } catch (e) { /* storage blocked */ }
     setJustSaved({ name, title: (rec && rec.title) || name, archived: !!(rec && storageAvailable) });
     return { name, rec };
-  }, [proposals, baselineId, customRows, rowOrder]);
+  }, [proposals, baselineId, customRows, rowOrder, rowEdits]);
 
   const openComparison = useCallback((file) => {
     const rd = new FileReader();
@@ -232,7 +256,7 @@ export default function App() {
   }, [restoreSnapshot]);
 
   const restoreFromArchive = useCallback((rec) => {
-    restoreSnapshot({ proposals: rec.proposals, baselineId: rec.baselineId, customRows: rec.customRows, rowOrder: rec.rowOrder });
+    restoreSnapshot({ proposals: rec.proposals, baselineId: rec.baselineId, customRows: rec.customRows, rowOrder: rec.rowOrder, rowEdits: rec.rowEdits });
     setView('matrix');
     setJustSaved(null);
     toast('Restored “' + (rec.title || 'comparison') + '” — you can edit and re-save.');
@@ -246,9 +270,9 @@ export default function App() {
   // Auto-save to the browser so a refresh doesn't lose work.
   useEffect(() => {
     try {
-      if (proposals.length) storageSet('crs-comparison', JSON.stringify({ version: 1, savedAt: new Date().toISOString(), baselineId, proposals, customRows, rowOrder }));
+      if (proposals.length) storageSet('crs-comparison', JSON.stringify({ version: 1, savedAt: new Date().toISOString(), baselineId, proposals, customRows, rowOrder, rowEdits }));
     } catch (e) { /* storage unavailable / full */ }
-  }, [proposals, baselineId, customRows, rowOrder]);
+  }, [proposals, baselineId, customRows, rowOrder, rowEdits]);
 
   const [restorable, setRestorable] = useState(null);
   useEffect(() => {
@@ -315,14 +339,14 @@ export default function App() {
   }, [shown]);
 
   const builtMatrix = useMemo(
-    () => buildMatrixFromProposals(shown, baselineId, customRows, rowOrder),
-    [shown, baselineId, customRows, rowOrder]
+    () => buildMatrixFromProposals(shown, baselineId, customRows, rowOrder, rowEdits),
+    [shown, baselineId, customRows, rowOrder, rowEdits]
   );
 
   // The row-key sequence currently on screen — the base to reorder/insert
   // against until the user has actually dragged something (rowOrder empty).
   const currentRowKeys = useCallback(
-    () => (rowOrder.length ? rowOrder : builtMatrix.rows.map((r) => r.key)),
+    () => (rowOrder.length ? rowOrder : builtMatrix.allKeys),
     [rowOrder, builtMatrix]
   );
 
@@ -419,7 +443,7 @@ export default function App() {
                 <div className="mb-4">
                   <button onClick={() => setView('archive')} className="btn btn-ghost btn-sm -ml-2.5">← Back to Archive</button>
                 </div>
-                <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [], archiveItem.rowOrder || [])} />
+                <MatrixView matrix={buildMatrixFromProposals(archiveItem.proposals || [], archiveItem.baselineId || 'none', archiveItem.customRows || [], archiveItem.rowOrder || [], archiveItem.rowEdits)} />
               </>
             ) : (
               <ArchiveView
@@ -560,6 +584,9 @@ export default function App() {
                       onAddRow={addCustomRow}
                       onRenameRow={renameCustomRow}
                       onRemoveRow={removeCustomRow}
+                      onRenameBuiltinRow={renameBuiltinRow}
+                      onHideRow={hideBuiltinRow}
+                      onRestoreHiddenRows={restoreHiddenRows}
                       onMoveRow={moveRow}
                       onRemoveEmptyRows={removeEmptyCustomRows}
                       emptyRowCount={emptyCustomRowCount}
