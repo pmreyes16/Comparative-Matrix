@@ -16,6 +16,8 @@ import ArchiveView from './components/ArchiveView.jsx';
 import ProposalView from './components/ProposalView.jsx';
 import DocumentControlView from './components/DocumentControlView.jsx';
 import Sidebar from './components/Sidebar.jsx';
+import CommissionCalculator from './components/CommissionCalculator.jsx';
+import AssistantView from './components/AssistantView.jsx';
 import { saveStoredTemplate, deleteStoredTemplate, listStoredTemplates } from './lib/templateStore.js';
 
 // Per-view heading shown at the top of the main card.
@@ -24,6 +26,8 @@ const VIEW_META = {
   bestfit: { eyebrow: 'CRS Comparative System', title: 'Best Fit', subtitle: 'Weighted, multi-criteria ranking across price, cover and terms.' },
   matrix: { eyebrow: 'Dashboard', title: 'CRS Comparative System', subtitle: 'Baseline vs. insurer terms, side by side.' },
   proposal: { eyebrow: 'Recommendation', title: 'Generate a Proposal', subtitle: 'A client-ready recommendation document built from your comparison.' },
+  assistant: { eyebrow: 'Tools', title: 'AI Insurance Assistant', subtitle: 'Plain-language summaries, coverage explained, differences between slips and a client recommendation draft.' },
+  commission: { eyebrow: 'Tools', title: 'Commission Calculator', subtitle: 'Premium build-up, taxes and broker commission — every formula is editable.' },
   doccontrol: { eyebrow: 'Templates', title: 'Document Control', subtitle: 'Your standard Quotation Slip templates, one per line of insurance.' },
   archive: { eyebrow: 'History', title: 'Archive', subtitle: 'Matrices you’ve saved in this browser.' },
   archiveItem: { eyebrow: 'History', title: 'Archive', subtitle: 'Viewing a saved matrix (read-only).' },
@@ -510,7 +514,9 @@ export default function App() {
                 </div>
               )}
 
-              {view === 'doccontrol' ? (
+              {view === 'commission' ? (
+                <CommissionCalculator proposals={proposals} />
+              ) : view === 'doccontrol' ? (
                 <DocumentControlView
                   proposals={shown}
                   templateMeta={templateMeta}
@@ -546,6 +552,8 @@ export default function App() {
                     </div>
                   </div>
                 )
+              ) : view === 'assistant' ? (
+                <AssistantView proposals={shown} />
               ) : view === 'proposal' ? (
                 <ProposalView proposals={shown} onBack={() => setView('overview')} />
               ) : (

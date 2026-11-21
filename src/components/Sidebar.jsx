@@ -48,6 +48,19 @@ const IconArchive = () => (
     <path d="M10 13h4" />
   </Icon>
 );
+const IconCalculator = () => (
+  <Icon>
+    <rect x="5" y="3" width="14" height="18" rx="2" />
+    <path d="M8.5 7h7" />
+    <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15v2.5M8.5 18h.01M12 18h.01" />
+  </Icon>
+);
+const IconAssistant = () => (
+  <Icon>
+    <path d="M12 3.5l1.6 4.2 4.4 1.6-4.4 1.6L12 15.1l-1.6-4.2L6 9.3l4.4-1.6L12 3.5Z" />
+    <path d="M18 15l.7 1.8 1.8.7-1.8.7L18 20l-.7-1.8-1.8-.7 1.8-.7L18 15Z" />
+  </Icon>
+);
 
 const NAV_GROUPS = [
   {
@@ -57,6 +70,13 @@ const NAV_GROUPS = [
       { key: 'bestfit', label: 'Best Fit', requiresData: true, Icon: IconBestFit },
       { key: 'matrix', label: 'Matrix', requiresData: true, Icon: IconMatrix },
       { key: 'proposal', label: 'Proposal', requiresData: true, Icon: IconProposal },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { key: 'assistant', label: 'AI Assistant', requiresData: true, Icon: IconAssistant },
+      { key: 'commission', label: 'Commission Calculator', requiresData: false, Icon: IconCalculator },
     ],
   },
   {
